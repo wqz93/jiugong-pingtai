@@ -106,6 +106,9 @@
   .tbl td.t-time { color:#2b5aed; }
   .tbl td.t-ok { color:#00b42a; }
   .tbl td.t-full { color:#f53f3f; }
+  .tbl td.t-fee { color:#1f2329; font-weight:600; font-variant-numeric:tabular-nums; }
+  .scroll-tip { display:none; font-size:10px; color:#a6acb5; text-align:right; margin:0 2px 3px; }
+  @media (max-width: 480px) { .scroll-tip { display:block; } }
   .tbl td.t-room { font-weight:600; white-space:normal; min-width:72px; }
   .tbl td.t-func { color:#86909c; white-space:normal; min-width:64px; }
   .tbl td.c-free { color:#00b42a; background:#f0fbf4; text-align:center; font-weight:600; }
@@ -290,6 +293,13 @@ function cellText(v) {
   if (typeof v === 'number') return String(v);
   return String(v).trim();
 }
+/* 数值单元格：兼容数字与「1,000」「1000元」等文本 */
+function numOrNull(v) {
+  if (typeof v === 'number' && isFinite(v)) return v;
+  const m = String(v ?? '').replace(/,/g, '').match(/-?\d+(?:\.\d+)?/);
+  return m ? Number(m[0]) : null;
+}
+const fmtFee = v => v == null ? '—' : '¥' + String(v).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 
 /* 解析招生简章 → { classes, sessions, extraRooms } */
 function parseZhaosheng(wb) {
@@ -324,8 +334,8 @@ function parseZhaosheng(wb) {
       n: name, c: cam, major: cellText(row[col['专业']]), time: timeTxt,
       rooms: uniqRooms, roomRaw: roomRaw.replace(/\n/g, ' '),
       t: cellText(row[col['教师']]),
-      left: typeof left === 'number' ? left : null,
-      fee: typeof fee === 'number' ? fee : null,
+      left: numOrNull(left),
+      fee: numOrNull(fee),   // 学费取招生简章「总计」列（学费 + 书杂费）
     });
 
     timeTxt.split(/[\n\r]+/).forEach(seg => {
@@ -490,13 +500,14 @@ function timeKey(k) {
 function clsTable(cls) {
   if (!cls.length) return '<div class="empty">本学期暂无班级使用该教室</div>';
   const sorted = [...cls].sort((a, b) => timeKey(a) - timeKey(b));
-  return `<div class="tbl-wrap"><table class="tbl">
-    <thead><tr><th>班级名称</th><th>上课时间</th><th>教师</th><th>剩余名额</th></tr></thead>
+  return `<div class="scroll-tip">左右滑动查看完整表格 →</div><div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>班级名称</th><th>上课时间</th><th>教师</th><th>剩余名额</th><th>学费</th></tr></thead>
     <tbody>${sorted.map(k => `<tr>
       <td class="t-name">${esc(k.n)}</td>
       <td class="t-time">${esc(k.time) || '未定'}</td>
       <td>${esc(k.t)}</td>
       <td class="${k.left == null ? '' : k.left > 0 ? 't-ok' : 't-full'}">${k.left == null ? '—' : k.left > 0 ? '剩' + k.left : '已满'}</td>
+      <td class="t-fee">${fmtFee(k.fee)}</td>
     </tr>`).join('')}</tbody></table></div>`;
 }
 
