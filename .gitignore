@@ -1,0 +1,5 @@
+data.json
+*.pyc
+__pycache__/
+.netlify/
+.DS_Store
