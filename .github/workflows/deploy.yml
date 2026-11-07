@@ -12,7 +12,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Check Netlify token
+        id: check
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+        run: |
+          if [ -n "$NETLIFY_AUTH_TOKEN" ]; then
+            echo "has_token=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_token=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::未配置 NETLIFY_AUTH_TOKEN 密钥，本次跳过部署。可在 Netlify 后台创建 Token 后执行：gh secret set NETLIFY_AUTH_TOKEN --body \"<token>\" -R wqz93/jiugong-pingtai"
+          fi
+
       - name: Deploy to Netlify
+        if: steps.check.outputs.has_token == 'true'
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           SITE_ID: 9d4db5a9-7c14-44fd-8bd0-6f18284848c7
@@ -25,4 +38,4 @@ jobs:
             --message "deploy: ${GITHUB_SHA::8}"
 
       - name: Summary
-        run: echo "Deployed to https://sng-jiugong-pingtai.netlify.app"
+        run: echo "站点地址：https://sng-jiugong-pingtai.netlify.app"
