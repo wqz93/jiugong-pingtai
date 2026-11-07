@@ -51,7 +51,22 @@ netlify.toml    # 发布配置（publish = "."）
 netlify deploy --site 9d4db5a9-7c14-44fd-8bd0-6f18284848c7 --dir=. --prod
 ```
 
-修改页面后：改 `index.html` → 提交推送 → Netlify 自动构建上线（或用上面的命令手动发布）。
+修改页面后：改 `index.html` → 提交推送 → 自动部署上线（见下）。
+
+## 自动部署（GitHub Actions）
+
+仓库内置 `.github/workflows/deploy.yml`，push 到 `main` 即触发部署到 Netlify 生产环境。
+
+启用方式（二选一）：
+
+1. **配置 Netlify Token（推荐，无需额外授权）**
+   - 在 Netlify 后台 → Account settings → API tokens → Personal access tokens → New token → Generate
+   - 把 token 作为仓库密钥添加：`gh secret set NETLIFY_AUTH_TOKEN --body "<token>" -R wqz93/jiugong-pingtai`
+   - 之后每次 push 自动部署到 https://sng-jiugong-pingtai.netlify.app
+
+2. **在 Netlify 后台关联本仓库**
+   - Netlify → Add new site → Import an existing project → 选择 `wqz93/jiugong-pingtai`
+   - 由 Netlify 自带的 CI 完成构建部署（仓库已配置 `netlify.toml`，发布目录为仓库根目录）
 
 ## 后续规划
 

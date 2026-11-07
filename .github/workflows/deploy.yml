@@ -9,11 +9,20 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Trigger Netlify build
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deploy to Netlify
         env:
-          NETLIFY_BUILD_HOOK: ${{ secrets.NETLIFY_BUILD_HOOK }}
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          SITE_ID: 9d4db5a9-7c14-44fd-8bd0-6f18284848c7
         run: |
-          curl -sS -X POST "$NETLIFY_BUILD_HOOK" \
-            -H "Content-Type: application/json" \
-            -d '{}' \
-            -w "\nHTTP %{http_code}\n"
+          npx --yes netlify-cli@27 deploy \
+            --dir=. \
+            --prod \
+            --site="$SITE_ID" \
+            --auth="$NETLIFY_AUTH_TOKEN" \
+            --message "deploy: ${GITHUB_SHA::8}"
+
+      - name: Summary
+        run: echo "Deployed to https://sng-jiugong-pingtai.netlify.app"
