@@ -115,6 +115,18 @@
   .tbl td.c-busy { color:#c9cdd4; text-align:center; }
   .tbl th.c-slot { text-align:center; min-width:44px; }
 
+  /* 晚课查询：折叠表格 */
+  .tbl td.c-night { background:#fff7e8; color:#ff7d00; text-align:center; font-weight:600; }
+  .tbl td.c-none { color:#c9cdd4; text-align:center; }
+  .tbl tr.night-row { cursor:pointer; }
+  .tbl tr.night-row:active { background:#f2f6ff; }
+  .tbl tr.night-row.open td { background:#eef3ff; }
+  .tbl td.t-cnt { text-align:center; color:#4e5969; font-weight:600; }
+  .tbl td.t-arrow { color:#2b5aed; text-align:center; font-size:11px; white-space:nowrap; }
+  .night-detail > td { background:#fafbfc; padding:10px; white-space:normal; }
+  .night-detail .d-title { font-size:12px; color:#4e5969; font-weight:600; margin:0 0 6px 2px; }
+  .night-detail .tbl { border:1px solid #f0f0f0; border-radius:6px; }
+
   .empty { text-align:center; color:#86909c; font-size:13px; padding:24px 0; }
   .summary { font-size:12px; color:#86909c; margin:10px 2px 6px; }
   .footer { text-align:center; font-size:11px; color:#c9cdd4; margin-top:20px; }
@@ -133,7 +145,7 @@
       <div class="entry" onclick="goEntry('import')">
         <div class="entry-icon" style="background:#eef3ff;color:#2b5aed">简章</div>
         <div class="entry-name">查询招生简章</div>
-        <div class="entry-desc">教室查询 / 功能查询 / 空教室查询</div>
+        <div class="entry-desc">教室查询 / 功能查询 / 空教室查询 / 晚课查询</div>
       </div>
       <div class="entry disabled">
         <div class="entry-icon" style="background:#f2f3f5;color:#a9aeb8">待</div>
@@ -212,6 +224,7 @@
       <button class="active" data-p="room" onclick="setPanel('room')">教室查询</button>
       <button data-p="func" onclick="setPanel('func')">功能查询</button>
       <button data-p="free" onclick="setPanel('free')">空教室查询</button>
+      <button data-p="night" onclick="setPanel('night')">晚课查询</button>
     </div>
 
     <!-- 教室查询 -->
@@ -245,6 +258,15 @@
       <div class="result" id="freeResult"></div>
     </div>
 
+    <!-- 晚课查询 -->
+    <div class="card" id="panel-night" style="display:none">
+      <h2>晚课查询</h2>
+      <div class="tip">每天 6 节课中只展示晚上 2 节：晚1 17:20-18:50、晚2 19:00-20:30（按时间重叠判定，跨节长班会同时占两节）。点星期查看当天有晚课的教室；功能由「教室功能.xlsx」按教室名关联（更新过功能表请在导入页重新导入），显示「未登记」表示表中该教室未填功能。点教室行展开具体班级。</div>
+      <div class="days" id="nightChips"></div>
+      <button class="btn" style="width:100%" onclick="queryNight()">刷新晚课</button>
+      <div class="result" id="nightResult"></div>
+    </div>
+
     <div class="footer">数据来源：招生简章.xls · 教室功能.xlsx</div>
   </div>
 </div>
@@ -267,12 +289,15 @@ const SLOT_DEF = {
   ],
 };
 const slotDef = day => (day >= 6 ? SLOT_DEF.weekend : SLOT_DEF.weekday);
+const NIGHT_SLOTS = SLOT_DEF.weekday;   // 晚课固定为晚上 2 节，周一至周日一致
 
 let DATA = null;                 // 仅来自导入，无内置兜底
 let zsParsed = null, roomParsed = null;
 let zsOk = false, roomOk = false;
 let campus = '厦港';
 let freeDay = 6;
+let nightDay = 1;
+let curPanel = 'room';
 
 /* ================= 导入解析 ================= */
 function normRoom(raw, campus) {
@@ -368,11 +393,15 @@ function parseRoomFunc(wb) {
   if (!blocks.length) throw new Error('未找到校区教室表头（如「厦港教室26间」）');
   blocks.forEach(b => {
     for (let r = 0; r < grid.length; r++) {
-      const name = cellText((grid[r] || [])[b.col + 1]);
+      const rawName = cellText((grid[r] || [])[b.col + 1]);
       const func = cellText((grid[r] || [])[b.col + 2]);
-      if (!name || name === '教室') continue;
-      out[b.campus].push({
-        name,
+      if (!rawName || rawName === '教室') continue;
+      // 与招生简章用同一套教室名规范化（如「厦港4楼大舞蹈排练厅」→「4楼大舞蹈排练厅」），
+      // 否则按教室名关联时会漏掉这两间教室的功能
+      const nr = normRoom(rawName, b.campus);
+      if (!nr) continue;
+      out[nr.campus].push({
+        name: nr.name,
         funcs: func ? func.split(/[、,，/]+/).map(s => s.trim()).filter(Boolean) : ['未登记'],
       });
     }
@@ -497,9 +526,9 @@ function timeKey(k) {
   const min = tm ? (+tm[1]) * 60 + (+tm[2]) : 9999;
   return day * 10000 + min;
 }
-function clsTable(cls) {
+function clsTable(cls, keepOrder) {
   if (!cls.length) return '<div class="empty">本学期暂无班级使用该教室</div>';
-  const sorted = [...cls].sort((a, b) => timeKey(a) - timeKey(b));
+  const sorted = keepOrder ? cls : [...cls].sort((a, b) => timeKey(a) - timeKey(b));
   return `<div class="scroll-tip">左右滑动查看完整表格 →</div><div class="tbl-wrap"><table class="tbl">
     <thead><tr><th>班级名称</th><th>上课时间</th><th>教师</th><th>剩余名额</th><th>学费</th></tr></thead>
     <tbody>${sorted.map(k => `<tr>
@@ -527,13 +556,16 @@ function setCampus(c) {
   document.querySelectorAll('.campus-tab').forEach(t => t.classList.toggle('active', t.dataset.c === c));
   fillFuncSelect();
   clearResults();
+  if (curPanel === 'night') queryNight();
 }
 function setPanel(p) {
+  curPanel = p;
   document.querySelectorAll('.nav button').forEach(b => b.classList.toggle('active', b.dataset.p === p));
-  ['room','func','free'].forEach(x => document.getElementById('panel-' + x).style.display = x === p ? '' : 'none');
+  ['room','func','free','night'].forEach(x => document.getElementById('panel-' + x).style.display = x === p ? '' : 'none');
+  if (p === 'night' && !document.getElementById('nightResult').innerHTML) queryNight();
 }
 function clearResults() {
-  ['roomResult','funcResult','freeResult'].forEach(id => document.getElementById(id).innerHTML = '');
+  ['roomResult','funcResult','freeResult','nightResult'].forEach(id => document.getElementById(id).innerHTML = '');
 }
 
 function queryRoom() {
@@ -548,12 +580,14 @@ function queryRoom() {
 function fillFuncSelect() {
   const set = new Set();
   roomsOf(campus).forEach(r => r.funcs.forEach(f => f !== '未登记' && set.add(f)));
-  document.getElementById('funcSelect').innerHTML =
-    [...set].map(f => `<option value="${esc(f)}">${esc(f)}</option>`).join('');
+  document.getElementById('funcSelect').innerHTML = set.size
+    ? [...set].map(f => `<option value="${esc(f)}">${esc(f)}</option>`).join('')
+    : `<option value="">教室功能表未填写${esc(campus)}校区功能</option>`;
 }
 function queryFunc() {
   const f = document.getElementById('funcSelect').value;
   const box = document.getElementById('funcResult');
+  if (!f) { box.innerHTML = `<div class="empty">「教室功能.xlsx」中「${esc(campus)}校区」的功能列未填写，暂无可查询的功能</div>`; return; }
   const matched = roomsOf(campus).filter(r => r.funcs.includes(f));
   if (!matched.length) { box.innerHTML = `<div class="empty">该校区没有功能为「${esc(f)}」的教室</div>`; return; }
   box.innerHTML = `<div class="summary">「${esc(f)}」功能教室共 ${matched.length} 间</div>` + roomBlocks(matched);
@@ -584,9 +618,90 @@ function queryFree() {
     <thead><tr><th>教室</th><th>功能</th>${defs.map(d => `<th class="c-slot">${d.short}</th>`).join('')}</tr></thead>
     <tbody>${rows.map(({r, busy}) => `<tr>
       <td class="t-room">${esc(r.name)}</td>
-      <td class="t-func">${esc(r.funcs.join('、'))}</td>
+      <td class="t-func">${esc(funcBrief(r))}</td>
       ${busy.map(b => b ? '<td class="c-busy">—</td>' : '<td class="c-free">空</td>').join('')}
     </tr>`).join('')}</tbody></table></div>`;
+}
+
+/* ================= 晚课查询 ================= */
+/* 从班级「上课时间」文本还原 (星期, 起, 止)，口径与招生简章解析一致。
+   直接由 classes 推导，因此之前缓存在 localStorage 的导入数据也无需重导 */
+function classSlots(k) {
+  const out = [];
+  String(k.time || '').split(/[\n\r]+/).forEach(seg => {
+    const days = [...seg.matchAll(/周([一二三四五六日])/g)].map(m => DAYMAP[m[1]]);
+    const m = seg.match(/(\d{1,2}):(\d{2})\s*[-~—]\s*(\d{1,2}):(\d{2})/);
+    if (!days.length || !m) return;
+    const s = +m[1] * 60 + +m[2], e = +m[3] * 60 + +m[4];
+    days.forEach(d => out.push({ day:d, s, e }));
+  });
+  return out;
+}
+const isNightSlot = x => NIGHT_SLOTS.some(d => x.s < d.e && x.e > d.s);
+const funcText = r => r.funcs[0] === '未登记' ? '未登记' : r.funcs.join('、');
+/* 折叠行里功能可能很长，只显示前 2 项；展开后显示完整功能 */
+const funcBrief = r => {
+  if (r.funcs[0] === '未登记') return '未登记';
+  return r.funcs.length > 2 ? r.funcs.slice(0, 2).join('、') + '…' : r.funcs.join('、');
+};
+
+/* 某教室某天的晚课班级：校区 + 教室名双条件关联（两校区存在 301/302/401 等重名教室） */
+function nightClasses(room, day) {
+  return DATA.classes.filter(k => k.c === campus && k.rooms.includes(room) &&
+    classSlots(k).some(x => x.day === day && isNightSlot(x)));
+}
+function nightStart(k, day) {
+  const ss = classSlots(k).filter(x => x.day === day && isNightSlot(x)).map(x => x.s);
+  return ss.length ? Math.min(...ss) : 9999;
+}
+function renderNightChips() {
+  document.getElementById('nightChips').innerHTML = DAYS.map((d, i) =>
+    `<div class="day-chip ${i + 1 === nightDay ? 'active' : ''}" onclick="pickNightDay(${i + 1})">${d}</div>`).join('');
+}
+function pickNightDay(d) { nightDay = d; renderNightChips(); queryNight(); }
+
+/* 晚课结果：一行一教室的折叠表格，点击展开该教室当晚的具体班级 */
+function queryNight() {
+  const box = document.getElementById('nightResult');
+  const day = nightDay;
+  const rows = roomsOf(campus).map(r => {
+    const cls = nightClasses(r.name, day);
+    if (!cls.length) return null;
+    const times = cls.flatMap(k => classSlots(k).filter(x => x.day === day));
+    const busy = NIGHT_SLOTS.map(d => times.some(x => x.s < d.e && x.e > d.s));
+    return { r, cls: cls.sort((a, b) => nightStart(a, day) - nightStart(b, day)), busy };
+  }).filter(Boolean);
+  if (!rows.length) {
+    box.innerHTML = `<div class="empty">${DAYS[day - 1]}「${esc(campus)}校区」暂无晚间排课</div>`;
+    return;
+  }
+  const total = rows.reduce((n, x) => n + x.cls.length, 0);
+  const noFunc = rows.filter(x => x.r.funcs[0] === '未登记').length;
+  box.innerHTML = `<div class="summary">${DAYS[day - 1]} · ${esc(campus)}校区 · ${rows.length} 间教室有晚课 / ${total} 个班 · 点教室行展开班级详情${noFunc ? ` · ${noFunc} 间功能未登记（教室功能表未填写）` : ''}</div>
+  <div class="scroll-tip">左右滑动查看完整表格 →</div>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>教室</th><th>功能</th><th class="c-slot">晚1</th><th class="c-slot">晚2</th><th class="c-slot">晚课班</th><th class="c-slot">详情</th></tr></thead>
+    <tbody>${rows.map((x, i) => `
+      <tr class="night-row" id="nr-${i}" onclick="toggleNight(${i})">
+        <td class="t-room">${esc(x.r.name)}</td>
+        <td class="t-func">${esc(funcBrief(x.r))}</td>
+        ${x.busy.map(b => `<td class="${b ? 'c-night' : 'c-none'}">${b ? '有课' : '—'}</td>`).join('')}
+        <td class="t-cnt">${x.cls.length}</td>
+        <td class="t-arrow" id="na-${i}">▾ 展开</td>
+      </tr>
+      <tr class="night-detail" id="nd-${i}" style="display:none"><td colspan="6">
+        <div class="d-title">${DAYS[day - 1]} · ${esc(campus)}教室${esc(x.r.name)} · 功能：${esc(funcText(x.r))}</div>
+        ${clsTable(x.cls, true)}
+      </td></tr>`).join('')}</tbody></table></div>`;
+}
+function toggleNight(i) {
+  const d = document.getElementById('nd-' + i);
+  const row = document.getElementById('nr-' + i);
+  const arrow = document.getElementById('na-' + i);
+  const open = d.style.display !== 'none';
+  d.style.display = open ? 'none' : '';
+  row.classList.toggle('open', !open);
+  arrow.textContent = open ? '▾ 展开' : '▴ 收起';
 }
 
 function initQuery() {
@@ -598,6 +713,7 @@ function initQuery() {
   document.getElementById('cntZH').textContent = `${roomsOf('镇海').length} 教室 · ${zhC} 班`;
   fillFuncSelect();
   renderDayChips();
+  renderNightChips();
   clearResults();
 }
 
