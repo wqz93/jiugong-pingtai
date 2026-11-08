@@ -176,7 +176,7 @@
 
     <div class="imp-card">
       <div class="imp-title">导入数据文件</div>
-      <div class="imp-desc">请依次导入本学期两份数据文件（仅在本机浏览器内解析，不会上传）。<br>两个文件都导入后才能进入查询页面。</div>
+      <div class="imp-desc">请依次导入本学期两份数据文件（仅在本机浏览器内解析，不会上传）。<br>两个文件都导入后才能进入查询页面。<br>Excel 内容更新过，请先清除已导入的数据再重新导入。</div>
 
       <div class="imp-row" id="rowZs">
         <div class="imp-icon">简章</div>
@@ -383,14 +383,20 @@ function parseRoomFunc(wb) {
   const ws = wb.Sheets[wb.SheetNames[0]];
   const grid = XLSX.utils.sheet_to_json(ws, { header:1, raw:true, defval:'' });
   const out = { '厦港': [], '镇海': [] };
-  const blocks = [];
+  const blocks = [], seen = new Set();
   for (let r = 0; r < Math.min(5, grid.length); r++) {
     grid[r].forEach((c, i) => {
-      const m = cellText(c).match(/^(厦港|镇海).*教室/);
-      if (m) blocks.push({ campus: m[1], col: i });
+      // 只认校区标题格（「厦港教室」「镇海教室20间」等）。
+      // 新版功能表的教室名带前缀（如「厦港教室301」），宽松匹配会把数据行误判成表头。
+      const m = cellText(c).match(/^(厦港|镇海)教室(?:\d+间)?$/);
+      if (!m) return;
+      const key = m[1] + ':' + i;
+      if (seen.has(key)) return;
+      seen.add(key);
+      blocks.push({ campus: m[1], col: i });
     });
   }
-  if (!blocks.length) throw new Error('未找到校区教室表头（如「厦港教室26间」）');
+  if (!blocks.length) throw new Error('未找到校区教室表头（如「厦港教室」「镇海教室20间」）');
   blocks.forEach(b => {
     for (let r = 0; r < grid.length; r++) {
       const rawName = cellText((grid[r] || [])[b.col + 1]);
@@ -402,7 +408,8 @@ function parseRoomFunc(wb) {
       if (!nr) continue;
       out[nr.campus].push({
         name: nr.name,
-        funcs: func ? func.split(/[、,，/]+/).map(s => s.trim()).filter(Boolean) : ['未登记'],
+        // 功能列分隔符混用：空格/全角空格、顿号、中英文逗号、分号、斜杠
+        funcs: func ? func.split(/[\s、,，;；/]+/).map(s => s.trim()).filter(Boolean) : ['未登记'],
       });
     }
   });
@@ -581,7 +588,7 @@ function fillFuncSelect() {
   const set = new Set();
   roomsOf(campus).forEach(r => r.funcs.forEach(f => f !== '未登记' && set.add(f)));
   document.getElementById('funcSelect').innerHTML = set.size
-    ? [...set].map(f => `<option value="${esc(f)}">${esc(f)}</option>`).join('')
+    ? [...set].sort((a, b) => a.localeCompare(b, 'zh-CN')).map(f => `<option value="${esc(f)}">${esc(f)}</option>`).join('')
     : `<option value="">教室功能表未填写${esc(campus)}校区功能</option>`;
 }
 function queryFunc() {
