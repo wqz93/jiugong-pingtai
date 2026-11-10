@@ -118,14 +118,14 @@
   /* 晚课查询：折叠表格 */
   .tbl td.c-night { background:#fff7e8; color:#ff7d00; text-align:center; font-weight:600; }
   .tbl td.c-none { color:#c9cdd4; text-align:center; }
-  .tbl tr.night-row { cursor:pointer; }
-  .tbl tr.night-row:active { background:#f2f6ff; }
-  .tbl tr.night-row.open td { background:#eef3ff; }
+  .tbl tr.night-row, .tbl tr.fold-row { cursor:pointer; }
+  .tbl tr.night-row:active, .tbl tr.fold-row:active { background:#f2f6ff; }
+  .tbl tr.night-row.open td, .tbl tr.fold-row.open td { background:#eef3ff; }
   .tbl td.t-cnt { text-align:center; color:#4e5969; font-weight:600; }
   .tbl td.t-arrow { color:#2b5aed; text-align:center; font-size:11px; white-space:nowrap; }
-  .night-detail > td { background:#fafbfc; padding:10px; white-space:normal; }
-  .night-detail .d-title { font-size:12px; color:#4e5969; font-weight:600; margin:0 0 6px 2px; }
-  .night-detail .tbl { border:1px solid #f0f0f0; border-radius:6px; }
+  .night-detail > td, .fold-detail > td { background:#fafbfc; padding:10px; white-space:normal; }
+  .night-detail .d-title, .fold-detail .d-title { font-size:12px; color:#4e5969; font-weight:600; margin:0 0 6px 2px; }
+  .night-detail .tbl, .fold-detail .tbl { border:1px solid #f0f0f0; border-radius:6px; }
 
   .empty { text-align:center; color:#86909c; font-size:13px; padding:24px 0; }
   .summary { font-size:12px; color:#86909c; margin:10px 2px 6px; }
@@ -241,7 +241,7 @@
     <!-- 功能查询 -->
     <div class="card" id="panel-func" style="display:none">
       <h2>功能查询</h2>
-      <div class="tip">从教室功能表中选择功能（如「钢琴」），列出具备该功能的教室及排课情况。</div>
+      <div class="tip">从教室功能表中选择功能（如「钢琴」），结果按教室折叠展示，点教室行展开具体班级信息与完整功能。</div>
       <div class="row">
         <select id="funcSelect"></select>
         <button class="btn" onclick="queryFunc()">查询</button>
@@ -591,13 +591,45 @@ function fillFuncSelect() {
     ? [...set].sort((a, b) => a.localeCompare(b, 'zh-CN')).map(f => `<option value="${esc(f)}">${esc(f)}</option>`).join('')
     : `<option value="">教室功能表未填写${esc(campus)}校区功能</option>`;
 }
+/* 功能查询折叠行：优先显示本次查询的功能，其余简写；展开区显示完整功能 */
+function funcBriefFor(r, focus) {
+  if (r.funcs[0] === '未登记') return '未登记';
+  if (!r.funcs.includes(focus)) return funcBrief(r);
+  const rest = r.funcs.filter(x => x !== focus);
+  return focus + (rest.length ? '、' + rest.slice(0, 1).join('、') + (rest.length > 1 ? '…' : '') : '');
+}
 function queryFunc() {
   const f = document.getElementById('funcSelect').value;
   const box = document.getElementById('funcResult');
   if (!f) { box.innerHTML = `<div class="empty">「教室功能.xlsx」中「${esc(campus)}校区」的功能列未填写，暂无可查询的功能</div>`; return; }
   const matched = roomsOf(campus).filter(r => r.funcs.includes(f));
   if (!matched.length) { box.innerHTML = `<div class="empty">该校区没有功能为「${esc(f)}」的教室</div>`; return; }
-  box.innerHTML = `<div class="summary">「${esc(f)}」功能教室共 ${matched.length} 间</div>` + roomBlocks(matched);
+  const rows = matched.map(r => ({ r, cls: classesOf(campus, r.name) }));
+  const total = rows.reduce((n, x) => n + x.cls.length, 0);
+  box.innerHTML = `<div class="summary">「${esc(f)}」功能教室共 ${matched.length} 间 / ${total} 个班 · 点教室行展开班级详情</div>
+  <div class="scroll-tip">左右滑动查看完整表格 →</div>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>教室</th><th>功能</th><th class="c-slot">班级数</th><th class="c-slot">详情</th></tr></thead>
+    <tbody>${rows.map((x, i) => `
+      <tr class="fold-row" id="fr-${i}" onclick="toggleFunc(${i})">
+        <td class="t-room">${esc(x.r.name)}</td>
+        <td class="t-func">${esc(funcBriefFor(x.r, f))}</td>
+        <td class="t-cnt">${x.cls.length}</td>
+        <td class="t-arrow" id="fa-${i}">▾ 展开</td>
+      </tr>
+      <tr class="fold-detail" id="fd-${i}" style="display:none"><td colspan="4">
+        <div class="d-title">${esc(campus)}教室${esc(x.r.name)} · 功能：${esc(funcText(x.r))}</div>
+        ${clsTable(x.cls)}
+      </td></tr>`).join('')}</tbody></table></div>`;
+}
+function toggleFunc(i) {
+  const d = document.getElementById('fd-' + i);
+  const row = document.getElementById('fr-' + i);
+  const arrow = document.getElementById('fa-' + i);
+  const open = d.style.display !== 'none';
+  d.style.display = open ? 'none' : '';
+  row.classList.toggle('open', !open);
+  arrow.textContent = open ? '▾ 展开' : '▴ 收起';
 }
 
 function renderDayChips() {
