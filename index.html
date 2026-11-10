@@ -252,7 +252,7 @@
     <!-- 空教室查询 -->
     <div class="card" id="panel-free" style="display:none">
       <h2>空教室查询</h2>
-      <div class="tip">周末每天 6 节（上午 2 节、下午 2 节、晚上 2 节），周一至周五仅晚上 2 节。表格中「空」为空闲时段，「—」为已排课，可左右滑动查看。</div>
+      <div class="tip">周末每天 6 节（上午 2 节、下午 2 节、晚上 2 节），周一至周五仅晚上 2 节。表格按教室号升序（数字教室在前、特殊场地在后），「空」为空闲时段，「—」为已排课，可左右滑动查看。</div>
       <div class="days" id="dayChips"></div>
       <button class="btn" style="width:100%" onclick="queryFree()">查询空教室</button>
       <div class="result" id="freeResult"></div>
@@ -638,7 +638,19 @@ function renderDayChips() {
 }
 function pickDay(d) { freeDay = d; renderDayChips(); }
 
-/* 空教室：矩阵表格 */
+/* 教室升序：纯数字编号按数值排（307-2 紧跟 307），特殊场地按名称排在其后 */
+function compareRoomName(a, b) {
+  const key = s => {
+    const m = String(s).match(/^(\d+)(?:-(\d+))?$/);
+    return m ? { g: 0, a: +m[1], b: m[2] ? +m[2] : 0 } : { g: 1, s: String(s) };
+  };
+  const x = key(a), y = key(b);
+  if (x.g !== y.g) return x.g - y.g;
+  if (x.g === 0) return x.a - y.a || x.b - y.b;
+  return x.s.localeCompare(y.s, 'zh-CN', { numeric: true });
+}
+
+/* 空教室：矩阵表格，按教室升序 */
 function queryFree() {
   const box = document.getElementById('freeResult');
   const defs = slotDef(freeDay);
@@ -650,9 +662,9 @@ function queryFree() {
     if (freeCnt === defs.length) fullFree++;
     return { r, busy, freeCnt };
   });
-  // 空闲多的排前面
-  rows.sort((a, b) => b.freeCnt - a.freeCnt);
-  box.innerHTML = `<div class="summary">${DAYS[freeDay - 1]} · 全天空闲 ${fullFree} 间 / 共 ${rows.length} 间 · 列含义：${defs.map(d => d.short + '=' + d.label).join('，')}</div>
+  // 按教室升序（数字教室号在前，特殊场地在后）
+  rows.sort((a, b) => compareRoomName(a.r.name, b.r.name));
+  box.innerHTML = `<div class="summary">${DAYS[freeDay - 1]} · 全天空闲 ${fullFree} 间 / 共 ${rows.length} 间 · 按教室升序 · 列含义：${defs.map(d => d.short + '=' + d.label).join('，')}</div>
   <div class="tbl-wrap"><table class="tbl">
     <thead><tr><th>教室</th><th>功能</th>${defs.map(d => `<th class="c-slot">${d.short}</th>`).join('')}</tr></thead>
     <tbody>${rows.map(({r, busy}) => `<tr>
