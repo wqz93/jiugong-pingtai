@@ -252,9 +252,9 @@
     <!-- 空教室查询 -->
     <div class="card" id="panel-free" style="display:none">
       <h2>空教室查询</h2>
-      <div class="tip">周末每天 6 节（上午 2 节、下午 2 节、晚上 2 节），周一至周五仅晚上 2 节。表格按教室号升序（数字教室在前、特殊场地在后），「空」为空闲时段，「—」为已排课，可左右滑动查看。</div>
+      <div class="tip">点星期按钮即自动刷新列表。周末每天 6 节（上午 2 节、下午 2 节、晚上 2 节），周一至周五仅晚上 2 节。表格按教室号升序（数字教室在前、特殊场地在后），「空」为空闲时段，「—」为已排课，可左右滑动查看。</div>
       <div class="days" id="dayChips"></div>
-      <button class="btn" style="width:100%" onclick="queryFree()">查询空教室</button>
+      <button class="btn" style="width:100%" onclick="queryFree()">刷新空教室</button>
       <div class="result" id="freeResult"></div>
     </div>
 
@@ -564,12 +564,14 @@ function setCampus(c) {
   fillFuncSelect();
   clearResults();
   if (curPanel === 'night') queryNight();
+  else if (curPanel === 'free') queryFree();
 }
 function setPanel(p) {
   curPanel = p;
   document.querySelectorAll('.nav button').forEach(b => b.classList.toggle('active', b.dataset.p === p));
   ['room','func','free','night'].forEach(x => document.getElementById('panel-' + x).style.display = x === p ? '' : 'none');
   if (p === 'night' && !document.getElementById('nightResult').innerHTML) queryNight();
+  else if (p === 'free' && !document.getElementById('freeResult').innerHTML) queryFree();
 }
 function clearResults() {
   ['roomResult','funcResult','freeResult','nightResult'].forEach(id => document.getElementById(id).innerHTML = '');
@@ -636,7 +638,7 @@ function renderDayChips() {
   document.getElementById('dayChips').innerHTML = DAYS.map((d, i) =>
     `<div class="day-chip ${i + 1 === freeDay ? 'active' : ''}" onclick="pickDay(${i + 1})">${d}</div>`).join('');
 }
-function pickDay(d) { freeDay = d; renderDayChips(); }
+function pickDay(d) { freeDay = d; renderDayChips(); queryFree(); }   // 点星期即自动刷新，与晚课查询一致
 
 /* 教室升序：纯数字编号按数值排（307-2 紧跟 307），特殊场地按名称排在其后 */
 function compareRoomName(a, b) {
