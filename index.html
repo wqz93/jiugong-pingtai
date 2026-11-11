@@ -4,7 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>移动端培训部聚合平台</title>
-<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<!-- 解析库随站点本地发布：微信内置浏览器 / 国内网络不再依赖外部 CDN；
+     若单独把 index.html 拷走（同目录没有该 js），自动回退到 CDN -->
+<script src="xlsx.full.min.js" onerror="this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js'"></script>
 <style>
   * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
   body { font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif; background:#f2f4f8; color:#1f2329; }
@@ -432,7 +434,7 @@ function onFile(input, kind) {
   const file = input.files[0];
   if (!file) return;
   if (typeof XLSX === 'undefined') {
-    showWarn('解析库加载失败（首次使用需联网加载一次），请检查网络后重试。');
+    showWarn('解析库加载失败，请刷新页面重试（若单独使用 HTML 文件，请保持联网）。');
     input.value = ''; return;
   }
   const reader = new FileReader();
