@@ -112,6 +112,10 @@
   .tbl td.t-fee { color:#1f2329; font-weight:600; font-variant-numeric:tabular-nums; }
   .tbl td.t-grade { color:#86909c; white-space:normal; min-width:120px; line-height:1.5; }
   .tbl mark { background:#ffe58f; color:#1f2329; padding:0 1px; border-radius:2px; font-weight:600; }
+  /* 剩余名额「已满」的班级：整行橙色 FFC000 */
+  .tbl tr.row-full > td { background:#FFC000; }
+  .tbl tr.row-full > td.t-full { color:#5c3a00; font-weight:600; }
+  .tbl tr.row-full mark { background:#fff; }
   .scroll-tip { display:none; font-size:10px; color:#a6acb5; text-align:right; margin:0 2px 3px; }
   @media (max-width: 480px) { .scroll-tip { display:block; } }
   .tbl td.t-room { font-weight:600; white-space:normal; min-width:72px; }
@@ -587,12 +591,16 @@ function timeKey(k) {
   const min = tm ? (+tm[1]) * 60 + (+tm[2]) : 9999;
   return day * 10000 + min;
 }
-function clsTable(cls, keepOrder) {
+/* 剩余名额为 0（或负数）时页面显示「已满」，这类班级整行标橙色 */
+const isFullClass = k => k.left != null && k.left <= 0;
+const fullRowCls = k => isFullClass(k) ? ' class="row-full"' : '';
+/* markFull=false 用于晚课查询（用户仅要求班级名称/教室/年级/功能四个查询标色） */
+function clsTable(cls, keepOrder, markFull = true) {
   if (!cls.length) return '<div class="empty">本学期暂无班级使用该教室</div>';
   const sorted = keepOrder ? cls : [...cls].sort((a, b) => timeKey(a) - timeKey(b));
   return `<div class="scroll-tip">左右滑动查看完整表格 →</div><div class="tbl-wrap"><table class="tbl">
     <thead><tr><th>班级名称</th><th>上课时间</th><th>教师</th><th>剩余名额</th><th>学费</th></tr></thead>
-    <tbody>${sorted.map(k => `<tr>
+    <tbody>${sorted.map(k => `<tr${markFull ? fullRowCls(k) : ''}>
       <td class="t-name">${esc(k.n)}</td>
       <td class="t-time">${esc(k.time) || '未定'}</td>
       <td>${esc(k.t)}</td>
@@ -671,7 +679,7 @@ function queryName() {
   <div class="scroll-tip">左右滑动查看完整表格 →</div>
   <div class="tbl-wrap"><table class="tbl">
     <thead><tr><th>班级名称</th><th>教室</th><th>上课时间</th><th>教师</th><th>剩余名额</th><th>学费</th></tr></thead>
-    <tbody>${rows.map(({ k, html }) => `<tr>
+    <tbody>${rows.map(({ k, html }) => `<tr${fullRowCls(k)}>
       <td class="t-name">${html}</td>
       <td class="t-room">${esc(k.rooms.join('、')) || '—'}</td>
       <td class="t-time">${esc(k.time) || '未定'}</td>
@@ -746,7 +754,7 @@ function queryGrade() {
   <div class="scroll-tip">左右滑动查看完整表格 →</div>
   <div class="tbl-wrap"><table class="tbl">
     <thead><tr><th>班级名称</th><th>招生年级</th><th>教室</th><th>上课时间</th><th>教师</th><th>剩余名额</th><th>学费</th></tr></thead>
-    <tbody>${rows.map(k => `<tr>
+    <tbody>${rows.map(k => `<tr${fullRowCls(k)}>
       <td class="t-name">${esc(k.n)}</td>
       <td class="t-grade">${esc(k.grade) || '—'}</td>
       <td class="t-room">${esc(k.rooms.join('、')) || '—'}</td>
@@ -924,7 +932,7 @@ function queryNight() {
       </tr>
       <tr class="night-detail" id="nd-${i}" style="display:none"><td colspan="6">
         <div class="d-title">${DAYS[day - 1]} · ${esc(campus)}教室${esc(x.r.name)} · 功能：${esc(funcText(x.r))}</div>
-        ${clsTable(x.cls, true)}
+        ${clsTable(x.cls, true, false)}
       </td></tr>`).join('')}</tbody></table></div>`;
 }
 function toggleNight(i) {
