@@ -62,10 +62,12 @@
     box-shadow:0 4px 10px rgba(43,90,237,.25); }
   .campus-tab .cnt { display:block; font-size:11px; font-weight:400; opacity:.75; margin-top:2px; }
 
-  /* 功能导航 */
-  .nav { display:flex; gap:8px; padding:12px 16px 0; }
-  .nav button { flex:1; border:none; background:#fff; color:#4e5969; font-size:13px;
-    padding:9px 0; border-radius:8px; border:1px solid #e5e6eb; }
+  /* 功能导航：5 个入口，窄屏可横向滑动，按钮文字不换行 */
+  .nav { display:flex; gap:6px; padding:12px 16px 0; overflow-x:auto; scrollbar-width:thin; }
+  .nav::-webkit-scrollbar { height:3px; }
+  .nav::-webkit-scrollbar-thumb { background:#dcdfe6; border-radius:3px; }
+  .nav button { flex:0 0 auto; white-space:nowrap; border:none; background:#fff; color:#4e5969; font-size:13px;
+    padding:9px 10px; border-radius:8px; border:1px solid #e5e6eb; }
   .nav button.active { color:#2b5aed; border-color:#2b5aed; font-weight:600; background:#eef3ff; }
 
   /* 卡片 */
@@ -110,6 +112,7 @@
   .tbl td.t-ok { color:#00b42a; }
   .tbl td.t-full { color:#f53f3f; }
   .tbl td.t-fee { color:#1f2329; font-weight:600; font-variant-numeric:tabular-nums; }
+  .tbl mark { background:#ffe58f; color:#1f2329; padding:0 1px; border-radius:2px; font-weight:600; }
   .scroll-tip { display:none; font-size:10px; color:#a6acb5; text-align:right; margin:0 2px 3px; }
   @media (max-width: 480px) { .scroll-tip { display:block; } }
   .tbl td.t-room { font-weight:600; white-space:normal; min-width:72px; }
@@ -148,7 +151,7 @@
       <div class="entry" onclick="goEntry('import')">
         <div class="entry-icon" style="background:#eef3ff;color:#2b5aed">简章</div>
         <div class="entry-name">查询招生简章</div>
-        <div class="entry-desc">教室查询 / 功能查询 / 空教室查询 / 晚课查询</div>
+        <div class="entry-desc">班级名称 / 教室 / 功能 / 空教室 / 晚课查询</div>
       </div>
       <div class="entry disabled">
         <div class="entry-icon" style="background:#f2f3f5;color:#a9aeb8">待</div>
@@ -224,10 +227,22 @@
     </div>
 
     <div class="nav">
+      <button data-p="name" onclick="setPanel('name')">班级名称查询</button>
       <button class="active" data-p="room" onclick="setPanel('room')">教室查询</button>
       <button data-p="func" onclick="setPanel('func')">功能查询</button>
       <button data-p="free" onclick="setPanel('free')">空教室查询</button>
       <button data-p="night" onclick="setPanel('night')">晚课查询</button>
+    </div>
+
+    <!-- 班级名称查询 -->
+    <div class="card" id="panel-name" style="display:none">
+      <h2>班级名称查询</h2>
+      <div class="tip">输入班级名称里的任意字符即可模糊搜索招生简章（如输入「舞蹈」可匹配「少儿舞蹈提高」）；不连续的字符按顺序出现也能命中（如「舞提」）。结果按上课时间排序，点顶部校区可切换。</div>
+      <div class="row">
+        <input type="text" id="nameInput" placeholder="如：舞蹈 / 钢琴 / 少儿" onkeydown="if(event.key==='Enter')queryName()">
+        <button class="btn" onclick="queryName()">查询</button>
+      </div>
+      <div class="result" id="nameResult"></div>
     </div>
 
     <!-- 教室查询 -->
@@ -568,16 +583,63 @@ function setCampus(c) {
   clearResults();
   if (curPanel === 'night') queryNight();
   else if (curPanel === 'free') queryFree();
+  else if (curPanel === 'name' && document.getElementById('nameInput').value.trim()) queryName();
 }
 function setPanel(p) {
   curPanel = p;
   document.querySelectorAll('.nav button').forEach(b => b.classList.toggle('active', b.dataset.p === p));
-  ['room','func','free','night'].forEach(x => document.getElementById('panel-' + x).style.display = x === p ? '' : 'none');
+  ['name','room','func','free','night'].forEach(x => document.getElementById('panel-' + x).style.display = x === p ? '' : 'none');
   if (p === 'night' && !document.getElementById('nightResult').innerHTML) queryNight();
   else if (p === 'free' && !document.getElementById('freeResult').innerHTML) queryFree();
 }
 function clearResults() {
-  ['roomResult','funcResult','freeResult','nightResult'].forEach(id => document.getElementById(id).innerHTML = '');
+  ['nameResult','roomResult','funcResult','freeResult','nightResult'].forEach(id => document.getElementById(id).innerHTML = '');
+}
+
+/* ================= 班级名称查询 ================= */
+/* 模糊匹配：把输入拆成字符，只要这些字符按原顺序都出现在班级名称中即命中。
+   因此连续子串（舞蹈 → 少儿舞蹈提高）与不连续字符（舞提 → 少儿舞蹈提高）都支持，
+   单个字符（蹈）同样可以命中。命中时返回带 <mark> 高亮的安全 HTML，未命中返回 null。 */
+function matchClassName(name, q) {
+  const qc = [...String(q).replace(/\s+/g, '').toLowerCase()];
+  if (!qc.length) return null;
+  let qi = 0, html = '';
+  for (const ch of String(name)) {
+    if (qi < qc.length && ch.toLowerCase() === qc[qi]) {
+      html += '<mark>' + esc(ch) + '</mark>';
+      qi++;
+    } else {
+      html += esc(ch);
+    }
+  }
+  return qi === qc.length ? html : null;
+}
+function queryName() {
+  const q = document.getElementById('nameInput').value.trim();
+  const box = document.getElementById('nameResult');
+  if (!q) { box.innerHTML = '<div class="empty">请输入班级名称中的关键字</div>'; return; }
+  const all = DATA.classes.map(k => ({ k, html: matchClassName(k.n, q) })).filter(x => x.html);
+  const rows = all.filter(x => x.k.c === campus);
+  const other = all.length - rows.length;
+  const otherCampus = campus === '厦港' ? '镇海' : '厦港';
+  const otherTip = other ? ` · ${otherCampus}校区另有 ${other} 个匹配，可切换校区查看` : '';
+  if (!rows.length) {
+    box.innerHTML = `<div class="empty">「${esc(campus)}校区」未找到匹配「${esc(q)}」的班级${other ? `，${otherCampus}校区有 ${other} 个匹配，可切换校区查看` : ''}</div>`;
+    return;
+  }
+  rows.sort((a, b) => timeKey(a.k) - timeKey(b.k));
+  box.innerHTML = `<div class="summary">「${esc(campus)}校区」匹配到 ${rows.length} 个班 · 按上课时间排序${otherTip}</div>
+  <div class="scroll-tip">左右滑动查看完整表格 →</div>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>班级名称</th><th>教室</th><th>上课时间</th><th>教师</th><th>剩余名额</th><th>学费</th></tr></thead>
+    <tbody>${rows.map(({ k, html }) => `<tr>
+      <td class="t-name">${html}</td>
+      <td class="t-room">${esc(k.rooms.join('、')) || '—'}</td>
+      <td class="t-time">${esc(k.time) || '未定'}</td>
+      <td>${esc(k.t)}</td>
+      <td class="${k.left == null ? '' : k.left > 0 ? 't-ok' : 't-full'}">${k.left == null ? '—' : k.left > 0 ? '剩' + k.left : '已满'}</td>
+      <td class="t-fee">${fmtFee(k.fee)}</td>
+    </tr>`).join('')}</tbody></table></div>`;
 }
 
 function queryRoom() {
