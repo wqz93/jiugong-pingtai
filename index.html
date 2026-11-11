@@ -62,12 +62,10 @@
     box-shadow:0 4px 10px rgba(43,90,237,.25); }
   .campus-tab .cnt { display:block; font-size:11px; font-weight:400; opacity:.75; margin-top:2px; }
 
-  /* 功能导航：5 个入口，窄屏可横向滑动，按钮文字不换行 */
-  .nav { display:flex; gap:6px; padding:12px 16px 0; overflow-x:auto; scrollbar-width:thin; }
-  .nav::-webkit-scrollbar { height:3px; }
-  .nav::-webkit-scrollbar-thumb { background:#dcdfe6; border-radius:3px; }
-  .nav button { flex:0 0 auto; white-space:nowrap; border:none; background:#fff; color:#4e5969; font-size:13px;
-    padding:9px 10px; border-radius:8px; border:1px solid #e5e6eb; }
+  /* 功能导航：自动换行，每行 3 个，不做横向拉动 */
+  .nav { display:flex; flex-wrap:wrap; gap:6px; padding:12px 16px 0; }
+  .nav button { flex:1 1 30%; white-space:nowrap; border:none; background:#fff; color:#4e5969; font-size:13px;
+    padding:9px 6px; border-radius:8px; border:1px solid #e5e6eb; }
   .nav button.active { color:#2b5aed; border-color:#2b5aed; font-weight:600; background:#eef3ff; }
 
   /* 卡片 */
@@ -112,6 +110,7 @@
   .tbl td.t-ok { color:#00b42a; }
   .tbl td.t-full { color:#f53f3f; }
   .tbl td.t-fee { color:#1f2329; font-weight:600; font-variant-numeric:tabular-nums; }
+  .tbl td.t-grade { color:#86909c; white-space:normal; min-width:120px; line-height:1.5; }
   .tbl mark { background:#ffe58f; color:#1f2329; padding:0 1px; border-radius:2px; font-weight:600; }
   .scroll-tip { display:none; font-size:10px; color:#a6acb5; text-align:right; margin:0 2px 3px; }
   @media (max-width: 480px) { .scroll-tip { display:block; } }
@@ -151,7 +150,7 @@
       <div class="entry" onclick="goEntry('import')">
         <div class="entry-icon" style="background:#eef3ff;color:#2b5aed">简章</div>
         <div class="entry-name">查询招生简章</div>
-        <div class="entry-desc">班级名称 / 教室 / 功能 / 空教室 / 晚课查询</div>
+        <div class="entry-desc">班级名称 / 教室 / 年级 / 功能 / 空教室 / 晚课查询</div>
       </div>
       <div class="entry disabled">
         <div class="entry-icon" style="background:#f2f3f5;color:#a9aeb8">待</div>
@@ -182,7 +181,7 @@
 
     <div class="imp-card">
       <div class="imp-title">导入数据文件</div>
-      <div class="imp-desc">请依次导入本学期两份数据文件（仅在本机浏览器内解析，不会上传）。<br>两个文件都导入后才能进入查询页面。<br>Excel 内容更新过，请先清除已导入的数据再重新导入。</div>
+      <div class="imp-desc">请依次导入本学期两份数据文件（仅在本机浏览器内解析，不会上传）。<br>两个文件都导入后才能进入查询页面。<br>Excel 内容更新或平台功能升级后，请先清除已导入的数据再重新导入。</div>
 
       <div class="imp-row" id="rowZs">
         <div class="imp-icon">简章</div>
@@ -229,6 +228,7 @@
     <div class="nav">
       <button data-p="name" onclick="setPanel('name')">班级名称查询</button>
       <button class="active" data-p="room" onclick="setPanel('room')">教室查询</button>
+      <button data-p="grade" onclick="setPanel('grade')">年级查询</button>
       <button data-p="func" onclick="setPanel('func')">功能查询</button>
       <button data-p="free" onclick="setPanel('free')">空教室查询</button>
       <button data-p="night" onclick="setPanel('night')">晚课查询</button>
@@ -254,6 +254,17 @@
         <button class="btn" onclick="queryRoom()">查询</button>
       </div>
       <div class="result" id="roomResult"></div>
+    </div>
+
+    <!-- 年级查询 -->
+    <div class="card" id="panel-grade" style="display:none">
+      <h2>年级查询</h2>
+      <div class="tip">按招生简章「招生对象-年级」筛选。年级范围（如「小学一年级~小学六年级」）会自动展开，选中「二年级」即可查到所有覆盖该年级的班级。结果按上课时间排序，点顶部校区可切换。</div>
+      <div class="row">
+        <select id="gradeSelect"></select>
+        <button class="btn" onclick="queryGrade()">查询</button>
+      </div>
+      <div class="result" id="gradeResult"></div>
     </div>
 
     <!-- 功能查询 -->
@@ -292,6 +303,28 @@
 <script>
 const DAYS = ['周一','周二','周三','周四','周五','周六','周日'];
 const DAYMAP = {'一':1,'二':2,'三':3,'四':4,'五':5,'六':6,'日':7};
+/* 招生对象年级的先后顺序。招生简章里是范围文本（「小学一年级~小学六年级(初中预备班)」），
+   按此序列把范围展开成覆盖到的每个年级；「幼儿」是泛称，只作为范围起点、不作为下拉选项。 */
+const GRADE_ORDER = [
+  { label:'幼儿',                   group:'幼儿', short:'幼儿',   select:false },
+  { label:'幼儿小班',               group:'幼儿', short:'小班' },
+  { label:'幼儿中班',               group:'幼儿', short:'中班' },
+  { label:'幼儿大班',               group:'幼儿', short:'大班' },
+  { label:'小学一年级',             group:'小学', short:'一年级' },
+  { label:'小学二年级',             group:'小学', short:'二年级' },
+  { label:'小学三年级',             group:'小学', short:'三年级' },
+  { label:'小学四年级',             group:'小学', short:'四年级' },
+  { label:'小学五年级',             group:'小学', short:'五年级' },
+  { label:'小学六年级(初中预备班)', group:'小学', short:'六年级' },
+  { label:'初中一年级',             group:'初中', short:'一年级' },
+  { label:'初中二年级',             group:'初中', short:'二年级' },
+  { label:'初中三年级',             group:'初中', short:'三年级' },
+  { label:'高中一年级',             group:'高中', short:'一年级' },
+  { label:'高中二年级',             group:'高中', short:'二年级' },
+  { label:'高中三年级',             group:'高中', short:'三年级' },
+  { label:'成人',                   group:'其他', short:'成人' },
+];
+const GRADE_INDEX = new Map(GRADE_ORDER.map((g, i) => [g.label, i]));
 const SLOT_DEF = {
   weekend: [
     {short:'上1', label:'上午1节 08:30-10:00', s:510,  e:600},
@@ -365,6 +398,8 @@ function parseZhaosheng(wb) {
     const roomRaw = cellText(row[col['教室']]);
     const timeTxt = cellText(row[col['上课时间']]);
     const left = row[col['剩余名额']], fee = row[col['总计']];
+    // 「招生对象-年级」为范围文本，如「小学一年级~小学六年级(初中预备班)」；旧版表格没有此列时留空
+    const gradeRaw = col['招生对象-年级'] == null ? '' : cellText(row[col['招生对象-年级']]);
 
     const rooms = [];
     roomRaw.split(/[\n\r]+/).forEach(p => {
@@ -379,6 +414,7 @@ function parseZhaosheng(wb) {
       t: cellText(row[col['教师']]),
       left: numOrNull(left),
       fee: numOrNull(fee),   // 学费取招生简章「总计」列（学费 + 书杂费）
+      grade: gradeRaw,       // 招生对象-年级（原始范围文本，年级查询运行时再展开）
     });
 
     timeTxt.split(/[\n\r]+/).forEach(seg => {
@@ -580,20 +616,23 @@ function setCampus(c) {
   campus = c;
   document.querySelectorAll('.campus-tab').forEach(t => t.classList.toggle('active', t.dataset.c === c));
   fillFuncSelect();
+  fillGradeSelect();
   clearResults();
   if (curPanel === 'night') queryNight();
   else if (curPanel === 'free') queryFree();
   else if (curPanel === 'name' && document.getElementById('nameInput').value.trim()) queryName();
+  else if (curPanel === 'grade') queryGrade();
 }
 function setPanel(p) {
   curPanel = p;
   document.querySelectorAll('.nav button').forEach(b => b.classList.toggle('active', b.dataset.p === p));
-  ['name','room','func','free','night'].forEach(x => document.getElementById('panel-' + x).style.display = x === p ? '' : 'none');
+  ['name','room','grade','func','free','night'].forEach(x => document.getElementById('panel-' + x).style.display = x === p ? '' : 'none');
   if (p === 'night' && !document.getElementById('nightResult').innerHTML) queryNight();
   else if (p === 'free' && !document.getElementById('freeResult').innerHTML) queryFree();
+  else if (p === 'grade' && !document.getElementById('gradeResult').innerHTML) queryGrade();
 }
 function clearResults() {
-  ['nameResult','roomResult','funcResult','freeResult','nightResult'].forEach(id => document.getElementById(id).innerHTML = '');
+  ['nameResult','roomResult','gradeResult','funcResult','freeResult','nightResult'].forEach(id => document.getElementById(id).innerHTML = '');
 }
 
 /* ================= 班级名称查询 ================= */
@@ -634,6 +673,82 @@ function queryName() {
     <thead><tr><th>班级名称</th><th>教室</th><th>上课时间</th><th>教师</th><th>剩余名额</th><th>学费</th></tr></thead>
     <tbody>${rows.map(({ k, html }) => `<tr>
       <td class="t-name">${html}</td>
+      <td class="t-room">${esc(k.rooms.join('、')) || '—'}</td>
+      <td class="t-time">${esc(k.time) || '未定'}</td>
+      <td>${esc(k.t)}</td>
+      <td class="${k.left == null ? '' : k.left > 0 ? 't-ok' : 't-full'}">${k.left == null ? '—' : k.left > 0 ? '剩' + k.left : '已满'}</td>
+      <td class="t-fee">${fmtFee(k.fee)}</td>
+    </tr>`).join('')}</tbody></table></div>`;
+}
+
+/* ================= 年级查询 ================= */
+/* 把「招生对象-年级」的范围文本按 GRADE_ORDER 展开成覆盖到的每个年级。
+   例如「小学一年级~小学六年级(初中预备班)」→ 小学一年级…小学六年级，
+   因此下拉选中「二年级」时能命中所有覆盖该年级的班级。 */
+function gradeSet(k) {
+  const raw = String(k.grade || '').trim();
+  if (!raw) return [];
+  const parts = raw.split(/[~～]+/).map(s => s.trim()).filter(Boolean);
+  if (!parts.length) return [];
+  const resolve = p => {
+    if (GRADE_INDEX.has(p)) return p;
+    // 兼容省略括号后缀的写法，如「小学六年级」
+    const plain = p.replace(/[（(][^）)]*[）)]/g, '').trim();
+    const hit = GRADE_ORDER.find(g => g.label.replace(/[（(][^）)]*[）)]/g, '').trim() === plain);
+    return hit ? hit.label : null;
+  };
+  const a = resolve(parts[0]), b = resolve(parts[parts.length - 1]);
+  const ia = a == null ? null : GRADE_INDEX.get(a);
+  const ib = b == null ? null : GRADE_INDEX.get(b);
+  if (ia == null || ib == null) return parts;   // 端点无法识别时至少保留原始标签
+  const lo = Math.min(ia, ib), hi = Math.max(ia, ib);
+  return GRADE_ORDER.slice(lo, hi + 1).map(g => g.label);
+}
+/* 下拉按学段分组，显示「一年级 / 二年级…」，值为带学段的完整标签 */
+function fillGradeSelect() {
+  const sel = document.getElementById('gradeSelect');
+  const prev = sel.value;
+  const present = new Set();
+  DATA.classes.filter(k => k.c === campus).forEach(k => gradeSet(k).forEach(g => present.add(g)));
+  const groups = new Map();
+  GRADE_ORDER.filter(g => g.select !== false && present.has(g.label)).forEach(g => {
+    if (!groups.has(g.group)) groups.set(g.group, []);
+    groups.get(g.group).push(g);
+  });
+  if (!groups.size) {
+    sel.innerHTML = '<option value="">暂无年级信息，请重新导入招生简章</option>';
+    return;
+  }
+  sel.innerHTML = [...groups].map(([name, list]) =>
+    `<optgroup label="${esc(name)}">${list.map(g => `<option value="${esc(g.label)}">${esc(g.short)}</option>`).join('')}</optgroup>`).join('');
+  if (prev && present.has(prev)) sel.value = prev;
+}
+function queryGrade() {
+  const box = document.getElementById('gradeResult');
+  // 旧版本导入并缓存的数据没有年级字段，需引导重新导入
+  if (!DATA.classes.length || DATA.classes[0].grade == null) {
+    box.innerHTML = `<div class="empty">当前导入的数据不含「招生对象-年级」信息。<br>请回导入页清除数据后重新导入两份文件，即可使用年级查询。<br><button class="btn" style="margin-top:12px" onclick="goImport()">去重新导入</button></div>`;
+    return;
+  }
+  const g = document.getElementById('gradeSelect').value;
+  if (!g) { box.innerHTML = '<div class="empty">暂无可查询的年级，请重新导入招生简章</div>'; return; }
+  const all = DATA.classes.filter(k => gradeSet(k).includes(g));
+  const rows = all.filter(k => k.c === campus);
+  const other = all.length - rows.length;
+  const otherCampus = campus === '厦港' ? '镇海' : '厦港';
+  const otherTip = other ? ` · ${otherCampus}校区另有 ${other} 个班` : '';
+  if (!rows.length) {
+    box.innerHTML = `<div class="empty">「${esc(campus)}校区」没有面向「${esc(g)}」的班级${other ? `，${otherCampus}校区有 ${other} 个，可切换校区查看` : ''}</div>`;
+    return;
+  }
+  rows.sort((a, b) => timeKey(a) - timeKey(b));
+  box.innerHTML = `<div class="summary">「${esc(g)}」· ${esc(campus)}校区匹配到 ${rows.length} 个班 · 按上课时间排序${otherTip}</div>
+  <div class="scroll-tip">左右滑动查看完整表格 →</div>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>班级名称</th><th>招生年级</th><th>教室</th><th>上课时间</th><th>教师</th><th>剩余名额</th><th>学费</th></tr></thead>
+    <tbody>${rows.map(k => `<tr>
+      <td class="t-name">${esc(k.n)}</td>
+      <td class="t-grade">${esc(k.grade) || '—'}</td>
       <td class="t-room">${esc(k.rooms.join('、')) || '—'}</td>
       <td class="t-time">${esc(k.time) || '未定'}</td>
       <td>${esc(k.t)}</td>
@@ -830,6 +945,7 @@ function initQuery() {
   document.getElementById('cntXG').textContent = `${roomsOf('厦港').length} 教室 · ${xgC} 班`;
   document.getElementById('cntZH').textContent = `${roomsOf('镇海').length} 教室 · ${zhC} 班`;
   fillFuncSelect();
+  fillGradeSelect();
   renderDayChips();
   renderNightChips();
   clearResults();
