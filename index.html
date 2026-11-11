@@ -591,16 +591,16 @@ function timeKey(k) {
   const min = tm ? (+tm[1]) * 60 + (+tm[2]) : 9999;
   return day * 10000 + min;
 }
-/* 剩余名额为 0（或负数）时页面显示「已满」，这类班级整行标橙色 */
+/* 剩余名额为 0（或负数）时页面显示「已满」，这类班级整行标橙色。
+   教室查询 / 功能查询 / 晚课查询展开的班级明细都走 clsTable，统一生效 */
 const isFullClass = k => k.left != null && k.left <= 0;
 const fullRowCls = k => isFullClass(k) ? ' class="row-full"' : '';
-/* markFull=false 用于晚课查询（用户仅要求班级名称/教室/年级/功能四个查询标色） */
-function clsTable(cls, keepOrder, markFull = true) {
+function clsTable(cls, keepOrder) {
   if (!cls.length) return '<div class="empty">本学期暂无班级使用该教室</div>';
   const sorted = keepOrder ? cls : [...cls].sort((a, b) => timeKey(a) - timeKey(b));
   return `<div class="scroll-tip">左右滑动查看完整表格 →</div><div class="tbl-wrap"><table class="tbl">
     <thead><tr><th>班级名称</th><th>上课时间</th><th>教师</th><th>剩余名额</th><th>学费</th></tr></thead>
-    <tbody>${sorted.map(k => `<tr${markFull ? fullRowCls(k) : ''}>
+    <tbody>${sorted.map(k => `<tr${fullRowCls(k)}>
       <td class="t-name">${esc(k.n)}</td>
       <td class="t-time">${esc(k.time) || '未定'}</td>
       <td>${esc(k.t)}</td>
@@ -932,7 +932,7 @@ function queryNight() {
       </tr>
       <tr class="night-detail" id="nd-${i}" style="display:none"><td colspan="6">
         <div class="d-title">${DAYS[day - 1]} · ${esc(campus)}教室${esc(x.r.name)} · 功能：${esc(funcText(x.r))}</div>
-        ${clsTable(x.cls, true, false)}
+        ${clsTable(x.cls, true)}
       </td></tr>`).join('')}</tbody></table></div>`;
 }
 function toggleNight(i) {
