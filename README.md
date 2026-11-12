@@ -99,9 +99,13 @@ node build_offline.js C:/Users/44231/WorkBuddy/SNG/wechat-site/index.html  # 国
 netlify deploy --site 9d4db5a9-7c14-44fd-8bd0-6f18284848c7 --dir=. --prod
 ```
 
-修改页面后：改 `index.html` → 同步各副本并重建单文件版 → 提交推送 → 自动部署上线（见下）。国内备用链接需在应用发布面板单独重新发布，且会覆盖该链接的线上内容。
+修改页面后：改 `index.html` → 同步各副本并重建单文件版 → 提交推送 → 部署上线（见下）。国内备用链接需在应用发布面板单独重新发布，且会覆盖该链接的线上内容。
 
 ## 自动部署（GitHub Actions）
+
+> **当前状态**：仓库尚未配置 `NETLIFY_AUTH_TOKEN`，Actions 里的「Deploy to Netlify」步骤是 **skipped**（workflow 整体仍报 success），所以 push 不会自动刷新线上。配置下方密钥后即可恢复；在此之前需显式执行 `netlify deploy` 或走 Netlify REST API 直传，并在部署后校验线上关键标记，不能只看 Actions 是否 success。
+>
+> 若 `netlify deploy` 返回 `JSONHTTPError: Forbidden`，可用 CLI 同款 token 直接调 REST API：`POST /sites/{id}/deploys` → `PUT /sites/{id}/deploys/{did}`（带 `{files:{路径:sha1}}`）→ `PUT /deploys/{did}/files/{path}` 上传 required → 等 ready → `POST /sites/{id}/deploys/{did}/restore` 发布。
 
 仓库内置 `.github/workflows/deploy.yml`，push 到 `main` 即触发部署到 Netlify 生产环境。
 
