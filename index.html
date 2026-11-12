@@ -4,10 +4,23 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>移动端培训部聚合平台</title>
-<!-- 解析库随站点本地发布：微信内置浏览器 / 国内网络不再依赖外部 CDN；
+<!-- 解析库随站点本地发布：微信内置浏览器 / 国内网络不依赖任何外部 CDN；
      defer 让页面先渲染（弱网下不会出现长时间白屏），导入时库已就绪；
-     若单独把 index.html 拷走（同目录没有该 js），自动回退到 CDN -->
-<script defer src="xlsx.full.min.js" onerror="this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js'"></script>
+     加载失败时只在本站同域重试（最多 2 次），绝不回退到外部 CDN -->
+<script>
+/* 同域重试：ES5 写法兼容旧版微信 X5/TBS 内核；每次新建 script 元素，
+   避免「改已插入 script 的 src」在旧 webview 里行为不一致 */
+function xlsxRetry(n) {
+  n = n || 0;
+  if (n >= 2) { document.documentElement.setAttribute('data-xlsx-failed', '1'); return; }
+  var s = document.createElement('script');
+  s.src = 'xlsx.full.min.js?retry=' + (n + 1);
+  s.onload = function () { document.documentElement.removeAttribute('data-xlsx-failed'); };
+  s.onerror = function () { xlsxRetry(n + 1); };
+  document.head.appendChild(s);
+}
+</script>
+<script defer src="xlsx.full.min.js" onerror="xlsxRetry(0)"></script>
 <style>
   * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
   body { font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif; background:#f2f4f8; color:#1f2329; }
@@ -177,6 +190,20 @@
     background:#2b5aed; color:#fff; font-size:14px; font-weight:600; }
   .diff-up { color:#f53f3f; font-weight:600; }
   .diff-down { color:#00b42a; font-weight:600; }
+  .warn-retry { display:block; margin:8px 0 0; padding:7px 14px; border:1px solid #2b5aed;
+    border-radius:6px; background:#fff; color:#2b5aed; font-size:12px; }
+  /* 微信内置浏览器导出提示层 */
+  .wx-mask { position:fixed; top:0; left:0; right:0; bottom:0; z-index:99; background:rgba(0,0,0,.45); display:flex;
+    align-items:center; justify-content:center; padding:24px; }
+  .wx-dialog { width:100%; max-width:340px; background:#fff; border-radius:12px; padding:20px 18px 16px;
+    box-shadow:0 8px 30px rgba(0,0,0,.18); }
+  .wx-dialog h3 { font-size:16px; color:#1f2329; margin-bottom:10px; }
+  .wx-dialog p { font-size:13px; line-height:1.75; color:#4e5969; margin-bottom:8px; }
+  .wx-dialog .wx-steps { background:#f7f8fa; border-radius:6px; padding:9px 11px;
+    font-size:12px; color:#2b5aed; line-height:1.8; margin:10px 0 14px; }
+  .wx-dialog .wx-btns { display:flex; gap:10px; }
+  .wx-dialog .wx-btns button { flex:1; padding:10px 0; border-radius:8px; font-size:13px; border:1px solid #e5e6eb; background:#fff; color:#4e5969; }
+  .wx-dialog .wx-btns button.primary { background:#2b5aed; border-color:#2b5aed; color:#fff; font-weight:600; }
   @media (max-width:360px) { .stat-cards { grid-template-columns:repeat(2,1fr); } }
 </style>
 </head>
@@ -379,9 +406,24 @@
   </div>
 </div>
 
+<!-- 微信内置浏览器导出提示：iOS WKWebView 不支持 <a download> + Blob 下载 .xlsx -->
+<div class="wx-mask" id="wxExportTip" style="display:none">
+  <div class="wx-dialog">
+    <h3>请在浏览器中导出</h3>
+    <p>微信内置浏览器通常不支持下载 .xlsx 文件（iOS 尤其明显），直接导出可能没有反应或显示乱码。</p>
+    <div class="wx-steps">点右上角「···」→ 选择「在浏览器打开」<br>回到本页后再点一次「导出统计结果 .xlsx」</div>
+    <div class="wx-btns">
+      <button type="button" onclick="hideWxExportTip()">知道了</button>
+      <button type="button" class="primary" onclick="wxExportAnyway()">仍然尝试导出</button>
+    </div>
+  </div>
+</div>
+
 <script>
 const DAYS = ['周一','周二','周三','周四','周五','周六','周日'];
 const DAYMAP = {'一':1,'二':2,'三':3,'四':4,'五':5,'六':6,'日':7};
+/* 兼容旧版微信 X5/TBS 内核：不用 String.matchAll（Chrome 73+），改用 match + 映射 */
+const weekDaysIn = seg => (String(seg).match(/周[一二三四五六日]/g) || []).map(x => DAYMAP[x.charAt(1)]);
 /* 招生对象年级的先后顺序。招生简章里是范围文本（「小学一年级~小学六年级(初中预备班)」），
    按此序列把范围展开成覆盖到的每个年级；「幼儿」是泛称，只作为范围起点、不作为下拉选项。 */
 const GRADE_ORDER = [
@@ -451,7 +493,7 @@ function cellText(v) {
 /* 数值单元格：兼容数字与「1,000」「1000元」等文本 */
 function numOrNull(v) {
   if (typeof v === 'number' && isFinite(v)) return v;
-  const m = String(v ?? '').replace(/,/g, '').match(/-?\d+(?:\.\d+)?/);
+  const m = String(v == null ? '' : v).replace(/,/g, '').match(/-?\d+(?:\.\d+)?/);
   return m ? Number(m[0]) : null;
 }
 const fmtFee = v => v == null ? '—' : '¥' + String(v).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
@@ -497,7 +539,7 @@ function parseZhaosheng(wb) {
     });
 
     timeTxt.split(/[\n\r]+/).forEach(seg => {
-      const days = [...seg.matchAll(/周([一二三四五六日])/g)].map(m => DAYMAP[m[1]]);
+      const days = weekDaysIn(seg);
       const m = seg.match(/(\d{1,2}):(\d{2})\s*[-~—]\s*(\d{1,2}):(\d{2})/);
       if (!days.length || !m) return;
       const s = +m[1] * 60 + +m[2], e = +m[3] * 60 + +m[4];
@@ -565,7 +607,7 @@ function onFile(input, kind) {
   const file = input.files[0];
   if (!file) return;
   if (typeof XLSX === 'undefined') {
-    showWarn('解析库尚未加载完成，请稍候几秒再选文件；若一直提示请刷新页面（单独使用 HTML 文件时需联网）。');
+    showWarn('解析库尚未加载完成，请稍候几秒再点「重试加载解析库」（仅从本站重试，不依赖外网）。', true);
     input.value = ''; return;
   }
   const reader = new FileReader();
@@ -598,9 +640,28 @@ function setRowState(rowId, stId, text) {
   st.classList.add('ok');
   document.getElementById('impWarn').style.display = 'none';
 }
-function showWarn(msg) {
+/* 解析库未就绪时，手动从本站同域重试（不依赖任何外部 CDN） */
+function xlsxReload() {
+  const s = document.createElement('script');
+  s.src = 'xlsx.full.min.js?manual=' + Date.now();
+  s.onload = function () {
+    ['impWarn', 'statWarn'].forEach(id => {
+      const w = document.getElementById(id);
+      if (w) w.style.display = 'none';
+    });
+  };
+  document.head.appendChild(s);
+}
+function appendRetryBtn(box) {
+  const b = document.createElement('button');
+  b.type = 'button'; b.className = 'warn-retry'; b.textContent = '重试加载解析库';
+  b.onclick = xlsxReload;
+  box.appendChild(b);
+}
+function showWarn(msg, retry) {
   const w = document.getElementById('impWarn');
   w.textContent = '⚠ ' + msg;
+  if (retry) appendRetryBtn(w);
   w.style.display = 'block';
 }
 function refreshEnter() {
@@ -648,7 +709,7 @@ function enterQuery() {
 function goImport() { showPage('page-import'); }
 
 /* ================= 查询页 ================= */
-const esc = s => String(s ?? '').replace(/[&<>"]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
+const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
 const roomsOf = c => DATA.rooms[c] || [];
 const classesOf = (c, room) => DATA.classes.filter(k => k.c === c && k.rooms.includes(room));
 
@@ -946,7 +1007,7 @@ function queryFree() {
 function classSlots(k) {
   const out = [];
   String(k.time || '').split(/[\n\r]+/).forEach(seg => {
-    const days = [...seg.matchAll(/周([一二三四五六日])/g)].map(m => DAYMAP[m[1]]);
+    const days = weekDaysIn(seg);
     const m = seg.match(/(\d{1,2}):(\d{2})\s*[-~—]\s*(\d{1,2}):(\d{2})/);
     if (!days.length || !m) return;
     const s = +m[1] * 60 + +m[2], e = +m[3] * 60 + +m[4];
@@ -984,7 +1045,8 @@ function queryNight() {
   const rows = roomsOf(campus).map(r => {
     const cls = nightClasses(r.name, day);
     if (!cls.length) return null;
-    const times = cls.flatMap(k => classSlots(k).filter(x => x.day === day));
+    const times = [];
+    cls.forEach(k => classSlots(k).forEach(x => { if (x.day === day) times.push(x); }));
     const busy = NIGHT_SLOTS.map(d => times.some(x => x.s < d.e && x.e > d.s));
     return { r, cls: cls.sort((a, b) => nightStart(a, day) - nightStart(b, day)), busy };
   }).filter(Boolean);
@@ -1097,9 +1159,10 @@ function parseStatWorkbook(wb, fileName) {
 }
 
 function statOf(rows) {
+  const cats = {}, catEnrolled = {};
+  STAT_CATS.forEach(c => { cats[c] = 0; catEnrolled[c] = 0; });
   const s = { classes: rows.length, enrolled:0, fee:0, book:0, total:0,
-    cats: Object.fromEntries(STAT_CATS.map(c => [c, 0])),
-    catEnrolled: Object.fromEntries(STAT_CATS.map(c => [c, 0])),
+    cats: cats, catEnrolled: catEnrolled,
     byMajor: new Map(), byRoom: new Map(), byTeacher: new Map() };
   rows.forEach(k => {
     const f = k.enrolled * k.fee, b = k.enrolled * k.book, t = k.enrolled * k.total;
@@ -1157,9 +1220,11 @@ function statFoldTable(key, title, note, heads, bodyHtml, cnt) {
 
 /* ---------- 导入页 ---------- */
 function initStatImport() { renderStatImportRows(); }
-function statWarn(msg) {
+function statWarn(msg, retry) {
   const w = document.getElementById('statWarn');
-  w.textContent = '⚠ ' + msg; w.style.display = 'block';
+  w.textContent = '⚠ ' + msg;
+  if (retry) appendRetryBtn(w);
+  w.style.display = 'block';
 }
 function renderStatImportRows() {
   const box = document.getElementById('statFileRows');
@@ -1188,7 +1253,7 @@ function onStatFile(input, key) {
   const file = input.files[0];
   if (!file) return;
   if (typeof XLSX === 'undefined') {
-    statWarn('解析库尚未加载完成，请稍候几秒再选文件；若一直提示请刷新页面。');
+    statWarn('解析库尚未加载完成，请稍候几秒再点「重试加载解析库」（仅从本站重试，不依赖外网）。', true);
     input.value = ''; return;
   }
   const reader = new FileReader();
@@ -1345,8 +1410,28 @@ function renderCompare() {
 }
 
 /* ---------- 导出 .xlsx ---------- */
+/* 微信内置浏览器（尤其 iOS WKWebView）不支持 <a download> + Blob URL 下载，
+   点导出时先给出「用浏览器打开」的引导，用户仍可强制尝试 */
+let wxExportConfirmed = false;
+const isWechatBrowser = () =>
+  typeof navigator !== 'undefined' && /MicroMessenger/i.test(navigator.userAgent || '');
+function hideWxExportTip() {
+  document.getElementById('wxExportTip').style.display = 'none';
+}
+function wxExportAnyway() {
+  hideWxExportTip();
+  wxExportConfirmed = true;
+  buildStatXlsx();
+}
 function exportStatXlsx() {
   if (typeof XLSX === 'undefined' || !XLSX.writeFile) { alert('导出组件尚未加载完成，请稍候再试'); return; }
+  if (isWechatBrowser() && !wxExportConfirmed) {
+    document.getElementById('wxExportTip').style.display = '';
+    return;
+  }
+  buildStatXlsx();
+}
+function buildStatXlsx() {
   const wb = XLSX.utils.book_new();
   const cLabel = statCampus === '全部' ? '全部校区' : statCampus + '校区';
   const add = (name, aoa) => XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), name);
