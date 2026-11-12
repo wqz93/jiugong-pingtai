@@ -139,6 +139,24 @@
   .empty { text-align:center; color:#86909c; font-size:13px; padding:24px 0; }
   .summary { font-size:12px; color:#86909c; margin:10px 2px 6px; }
   .footer { text-align:center; font-size:11px; color:#c9cdd4; margin-top:20px; }
+
+  /* 数据统计 */
+  .stat-cards { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; padding:12px 16px 0; }
+  .stat-card { background:#fff; border:1px solid #e5e6eb; border-radius:8px; padding:10px 6px; text-align:center; }
+  .stat-card .v { font-size:16px; font-weight:700; color:#1f2329; font-variant-numeric:tabular-nums; }
+  .stat-card .k { font-size:10px; color:#86909c; margin-top:3px; line-height:1.3; }
+  .stat-card.hl .v { color:#2b5aed; }
+  .stat-sec { margin:14px 16px 0; }
+  .stat-sec h3 { font-size:13px; color:#1f2329; margin:0 0 6px 2px;
+    display:flex; justify-content:space-between; align-items:baseline; gap:8px; }
+  .stat-sec h3 small { font-size:10px; color:#a6acb5; font-weight:400; }
+  .stat-note { font-size:11px; color:#86909c; line-height:1.65; margin:12px 16px 0;
+    background:#f7f8fa; padding:8px 10px; border-radius:6px; }
+  .export-btn { display:block; width:calc(100% - 32px); margin:16px; padding:11px 0; border:none; border-radius:8px;
+    background:#2b5aed; color:#fff; font-size:14px; font-weight:600; }
+  .diff-up { color:#f53f3f; font-weight:600; }
+  .diff-down { color:#00b42a; font-weight:600; }
+  @media (max-width:360px) { .stat-cards { grid-template-columns:repeat(2,1fr); } }
 </style>
 </head>
 <body>
@@ -156,10 +174,10 @@
         <div class="entry-name">查询招生简章</div>
         <div class="entry-desc">班级名称 / 教室 / 年级 / 功能 / 空教室 / 晚课查询</div>
       </div>
-      <div class="entry disabled">
-        <div class="entry-icon" style="background:#f2f3f5;color:#a9aeb8">待</div>
-        <div class="entry-name">敬请期待</div>
-        <div class="entry-desc">更多功能入口陆续上线</div>
+      <div class="entry" onclick="goEntry('stat-import')">
+        <div class="entry-icon" style="background:#fff7e8;color:#ff7d00">统计</div>
+        <div class="entry-name">数据统计</div>
+        <div class="entry-desc">春季 / 暑期 / 秋季 · 按校区统计与对比</div>
       </div>
       <div class="entry disabled">
         <div class="entry-icon" style="background:#f2f3f5;color:#a9aeb8">待</div>
@@ -173,6 +191,42 @@
       </div>
     </div>
     <div class="footer">移动端培训部聚合平台</div>
+  </div>
+
+  <!-- ================= 数据统计：导入 ================= -->
+  <div id="page-stat-import" style="display:none">
+    <div class="header">
+      <h1>数据统计</h1>
+      <div class="sub">第一步 · 导入招生简章</div>
+      <button class="import-link" onclick="goHome()">‹ 首页</button>
+    </div>
+    <div class="imp-card">
+      <div class="imp-title">导入各学期招生简章</div>
+      <div class="imp-desc">分别导入春季、暑期、秋季招生简章（格式相同，内容不同）。<br>只导入一份也能统计；三份齐全才会显示对比。<br>校区按「区域」字段自动区分。仅在本机浏览器内解析，不会上传。</div>
+      <div id="statFileRows"></div>
+      <div class="imp-warn" id="statWarn"></div>
+      <button class="enter-btn" id="statEnterBtn" disabled onclick="enterStat()">进入统计页面 →</button>
+      <button class="reset-link" id="statResetBtn" style="display:none" onclick="resetStatData()">清除已导入的数据，重新导入</button>
+    </div>
+    <div class="footer">数据来源：春季 / 暑期 / 秋季 招生简章.xls</div>
+  </div>
+
+  <!-- ================= 数据统计：结果 ================= -->
+  <div id="page-stat" style="display:none">
+    <div class="header">
+      <h1>数据统计</h1>
+      <div class="sub" id="statSub"></div>
+      <button class="import-link" style="right:96px" onclick="goHome()">‹ 首页</button>
+      <button class="import-link" onclick="goStatImport()">重新导入</button>
+    </div>
+    <div class="campus-bar">
+      <div class="campus-tab active" data-c="全部" onclick="setStatCampus('全部')">全部校区<span class="cnt" id="scntAll"></span></div>
+      <div class="campus-tab" data-c="厦港" onclick="setStatCampus('厦港')">厦港校区<span class="cnt" id="scntXG"></span></div>
+      <div class="campus-tab" data-c="镇海" onclick="setStatCampus('镇海')">镇海校区<span class="cnt" id="scntZH"></span></div>
+    </div>
+    <div class="nav" id="statTermNav"></div>
+    <div id="statBody"></div>
+    <div class="footer">移动端培训部聚合平台 · 数据统计</div>
   </div>
 
   <!-- ================= 导入页面 ================= -->
@@ -556,13 +610,14 @@ function resetData() {
 }
 
 /* ================= 页面切换 ================= */
-const PAGES = ['page-home', 'page-import', 'page-query'];
+const PAGES = ['page-home', 'page-import', 'page-query', 'page-stat-import', 'page-stat'];
 function showPage(id) {
   PAGES.forEach(p => document.getElementById(p).style.display = p === id ? '' : 'none');
 }
 function goHome() { showPage('page-home'); }
 function goEntry(entry) {
   if (entry === 'import') showPage('page-import');
+  else if (entry === 'stat-import') { initStatImport(); showPage('page-stat-import'); }
 }
 function enterQuery() {
   if (!DATA) return;
@@ -622,7 +677,7 @@ function roomBlocks(matched) {
 
 function setCampus(c) {
   campus = c;
-  document.querySelectorAll('.campus-tab').forEach(t => t.classList.toggle('active', t.dataset.c === c));
+  document.querySelectorAll('#page-query .campus-tab').forEach(t => t.classList.toggle('active', t.dataset.c === c));
   fillFuncSelect();
   fillGradeSelect();
   clearResults();
@@ -633,7 +688,7 @@ function setCampus(c) {
 }
 function setPanel(p) {
   curPanel = p;
-  document.querySelectorAll('.nav button').forEach(b => b.classList.toggle('active', b.dataset.p === p));
+  document.querySelectorAll('#page-query .nav button').forEach(b => b.classList.toggle('active', b.dataset.p === p));
   ['name','room','grade','func','free','night'].forEach(x => document.getElementById('panel-' + x).style.display = x === p ? '' : 'none');
   if (p === 'night' && !document.getElementById('nightResult').innerHTML) queryNight();
   else if (p === 'free' && !document.getElementById('freeResult').innerHTML) queryFree();
@@ -945,6 +1000,311 @@ function toggleNight(i) {
   arrow.textContent = open ? '▾ 展开' : '▴ 收起';
 }
 
+/* ================= 数据统计（第二个入口） =================
+   数据源：春季 / 暑期 / 秋季 招生简章（格式相同，内容不同）。
+   校区取「区域」字段；金额一律按「已招学员 × 单价」汇总。 */
+const STAT_TERMS = [
+  { key:'spring', name:'春季', icon:'春' },
+  { key:'summer', name:'暑期', icon:'暑' },
+  { key:'autumn', name:'秋季', icon:'秋' },
+];
+const STAT_CACHE = 'agg_stat_v1';
+const STAT_CATS = ['幼儿班','少儿班','青年班','未归类'];
+let STAT = { spring:null, summer:null, autumn:null };   // { fileName, rows }
+let statCampus = '全部';
+let statTerm = '';   // 学期 key，或 'compare'
+
+/* 「招生对象-年级」范围文本 → 起止年级在 GRADE_ORDER 中的序号 */
+function statGradeIdx(s) {
+  const raw = String(s || '').trim();
+  if (GRADE_INDEX.has(raw)) return GRADE_INDEX.get(raw);
+  const plain = raw.replace(/[（(][^）)]*[）)]/g, '').trim();
+  const hit = GRADE_ORDER.find(g => g.label.replace(/[（(][^）)]*[）)]/g, '').trim() === plain);
+  return hit ? GRADE_INDEX.get(hit.label) : null;
+}
+function statEndpoints(raw) {
+  const parts = String(raw || '').split(/[~～—–]/).map(s => s.trim()).filter(Boolean);
+  if (!parts.length) return [null, null];
+  return [statGradeIdx(parts[0]), statGradeIdx(parts[parts.length - 1])];
+}
+/* 起始=成人 → 青年班；起始在幼儿阶段 → 幼儿班；
+   起始≥小学一年级且结束≤高中三年级 → 少儿班；其余 → 未归类 */
+function statCategory(raw) {
+  const [a, b] = statEndpoints(raw);
+  if (a == null || b == null) return '未归类';
+  const primary = GRADE_INDEX.get('小学一年级');
+  const senior  = GRADE_INDEX.get('高中三年级');
+  const adult   = GRADE_INDEX.get('成人');
+  if (a === adult) return '青年班';
+  if (a < primary) return '幼儿班';
+  if (a >= primary && b <= senior) return '少儿班';
+  return '未归类';
+}
+
+function parseStatWorkbook(wb, fileName) {
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const grid = XLSX.utils.sheet_to_json(ws, { header:1, raw:true, defval:'' });
+  const hi = grid.findIndex(row => row.some(c => cellText(c) === '班级名称'));
+  if (hi < 0) throw new Error('未找到「班级名称」表头');
+  const col = {};
+  grid[hi].forEach((c, i) => { col[cellText(c)] = i; });
+  const need = ['班级名称','区域','专业','教室','教师','已招学员','学费','书杂费','总计','招生对象-年级'];
+  for (const n of need) if (col[n] == null) throw new Error('缺少列：' + n);
+  const rows = [];
+  for (let r = hi + 1; r < grid.length; r++) {
+    const row = grid[r];
+    const name = cellText(row[col['班级名称']]);
+    if (!name) continue;
+    const area = cellText(row[col['区域']]);
+    const grade = cellText(row[col['招生对象-年级']]);
+    rows.push({
+      n: name,
+      campus: area.includes('镇海') ? '镇海' : '厦港',
+      major: cellText(row[col['专业']]) || '未填写',
+      // 一个班可能占多间教室（单元格内换行）；专业名本身含顿号，不拆分
+      rooms: cellText(row[col['教室']]).split(/[\n\r]+/).map(s => s.trim()).filter(Boolean),
+      teacher: cellText(row[col['教师']]) || '未填写',
+      grade, cat: statCategory(grade),
+      enrolled: numOrNull(row[col['已招学员']]) || 0,
+      fee:  numOrNull(row[col['学费']]) || 0,
+      book: numOrNull(row[col['书杂费']]) || 0,
+      total: numOrNull(row[col['总计']]) || 0,
+    });
+  }
+  if (!rows.length) throw new Error('未在文件中找到班级数据');
+  return { fileName, rows };
+}
+
+function statOf(rows) {
+  const s = { classes: rows.length, enrolled:0, fee:0, book:0, total:0,
+    cats: Object.fromEntries(STAT_CATS.map(c => [c, 0])),
+    byMajor: new Map(), byRoom: new Map(), byTeacher: new Map() };
+  rows.forEach(k => {
+    const f = k.enrolled * k.fee, b = k.enrolled * k.book, t = k.enrolled * k.total;
+    s.enrolled += k.enrolled; s.fee += f; s.book += b; s.total += t;
+    s.cats[k.cat] = (s.cats[k.cat] || 0) + 1;
+    let m = s.byMajor.get(k.major);
+    if (!m) { m = { classes:0, enrolled:0, fee:0, book:0, total:0 }; s.byMajor.set(k.major, m); }
+    m.classes++; m.enrolled += k.enrolled; m.fee += f; m.book += b; m.total += t;
+    k.rooms.forEach(r => s.byRoom.set(r, (s.byRoom.get(r) || 0) + 1));
+    s.byTeacher.set(k.teacher, (s.byTeacher.get(k.teacher) || 0) + 1);
+  });
+  return s;
+}
+function statRowsOf(key) {
+  const d = STAT[key];
+  if (!d) return [];
+  return statCampus === '全部' ? d.rows : d.rows.filter(r => r.campus === statCampus);
+}
+const statLoaded = () => STAT_TERMS.filter(t => STAT[t.key]);
+const statMoney = v => (v < 0 ? '-¥' : '¥') + Math.abs(Math.round(v)).toLocaleString('zh-CN');
+const statInt = v => Math.round(v).toLocaleString('zh-CN');
+function statTable(title, note, heads, bodyHtml) {
+  return `<div class="stat-sec"><h3>${esc(title)}${note ? `<small>${esc(note)}</small>` : ''}</h3>
+    <div class="scroll-tip">左右滑动查看完整表格 →</div>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr>${heads.map(h => `<th>${h}</th>`).join('')}</tr></thead>
+    <tbody>${bodyHtml || `<tr><td colspan="${heads.length}" style="text-align:center;color:#86909c">暂无数据</td></tr>`}</tbody></table></div></div>`;
+}
+
+/* ---------- 导入页 ---------- */
+function initStatImport() { renderStatImportRows(); }
+function statWarn(msg) {
+  const w = document.getElementById('statWarn');
+  w.textContent = '⚠ ' + msg; w.style.display = 'block';
+}
+function renderStatImportRows() {
+  const box = document.getElementById('statFileRows');
+  if (!box) return;
+  box.innerHTML = STAT_TERMS.map(t => {
+    const d = STAT[t.key];
+    return `<div class="imp-row" id="srow-${t.key}">
+      <div class="imp-icon">${t.icon}</div>
+      <div class="imp-info">
+        <div class="imp-name">${t.name}招生简章</div>
+        <div class="imp-status" id="sst-${t.key}">${d ? '✓ ' + esc(d.fileName) + ' · ' + d.rows.length + ' 个班' : '未导入'}</div>
+      </div>
+      <button class="imp-btn" onclick="document.getElementById('sfile-${t.key}').click()">选择文件</button>
+      <input type="file" id="sfile-${t.key}" accept=".xls,.xlsx" style="display:none" onchange="onStatFile(this,'${t.key}')">
+    </div>`;
+  }).join('');
+  STAT_TERMS.forEach(t => {
+    const row = document.getElementById('srow-' + t.key);
+    if (row && STAT[t.key]) { row.classList.add('done'); document.getElementById('sst-' + t.key).classList.add('ok'); }
+  });
+  const n = statLoaded().length;
+  document.getElementById('statEnterBtn').disabled = !n;
+  document.getElementById('statResetBtn').style.display = n ? '' : 'none';
+}
+function onStatFile(input, key) {
+  const file = input.files[0];
+  if (!file) return;
+  if (typeof XLSX === 'undefined') {
+    statWarn('解析库尚未加载完成，请稍候几秒再选文件；若一直提示请刷新页面。');
+    input.value = ''; return;
+  }
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
+      STAT[key] = parseStatWorkbook(wb, file.name);
+      statSaveCache();
+      renderStatImportRows();
+      document.getElementById('statWarn').style.display = 'none';
+    } catch (err) { statWarn('「' + file.name + '」解析失败：' + err.message); }
+    input.value = '';
+  };
+  reader.readAsArrayBuffer(file);
+}
+function statSaveCache() {
+  try { localStorage.setItem(STAT_CACHE, JSON.stringify(STAT)); }
+  catch (e) { statWarn('本地缓存空间不足，本次数据仅在本次打开期间有效。'); }
+}
+function resetStatData() {
+  try { localStorage.removeItem(STAT_CACHE); } catch (e) {}
+  STAT = { spring:null, summer:null, autumn:null };
+  statTerm = ''; statCampus = '全部';
+  renderStatImportRows();
+  document.getElementById('statWarn').style.display = 'none';
+}
+function goStatImport() { initStatImport(); showPage('page-stat-import'); }
+function enterStat() {
+  if (!statLoaded().length) return;
+  initStat();
+  showPage('page-stat');
+}
+
+/* ---------- 结果页 ---------- */
+function initStat() {
+  const first = statLoaded()[0];
+  statTerm = first ? first.key : '';
+  const rows = statLoaded().reduce((n, t) => n + STAT[t.key].rows.length, 0);
+  document.getElementById('statSub').textContent = `已导入 ${statLoaded().length} 份 · ${rows} 个班级`;
+  document.getElementById('scntAll').textContent = rows + ' 班';
+  document.getElementById('scntXG').textContent = statLoaded().reduce((n, t) => n + STAT[t.key].rows.filter(r => r.campus === '厦港').length, 0) + ' 班';
+  document.getElementById('scntZH').textContent = statLoaded().reduce((n, t) => n + STAT[t.key].rows.filter(r => r.campus === '镇海').length, 0) + ' 班';
+  renderStatNav();
+  renderStat();
+}
+function renderStatNav() {
+  const loaded = statLoaded();
+  const tabs = loaded.map(t => `<button class="${statTerm === t.key ? 'active' : ''}" data-t="${t.key}" onclick="setStatTerm('${t.key}')">${t.name}</button>`).join('');
+  const cmp = loaded.length === 3 ? `<button class="${statTerm === 'compare' ? 'active' : ''}" data-t="compare" onclick="setStatTerm('compare')">三学期对比</button>` : '';
+  document.getElementById('statTermNav').innerHTML = tabs + cmp;
+}
+function setStatCampus(c) {
+  statCampus = c;
+  document.querySelectorAll('#page-stat .campus-tab').forEach(t => t.classList.toggle('active', t.dataset.c === c));
+  renderStat();
+}
+function setStatTerm(t) {
+  statTerm = t;
+  document.querySelectorAll('#statTermNav button').forEach(b => b.classList.toggle('active', b.dataset.t === t));
+  renderStat();
+}
+const STAT_NOTE = '口径：校区取「区域」字段；已招人数取「已招学员」列；学费 / 书杂费 / 总收入 = 该班已招人数 × 对应单价后求和。班级分类按「招生对象-年级」范围：起始为成人→青年班，起始在幼儿阶段→幼儿班，起始≥小学一年级且结束≤高中三年级→少儿班，其余→未归类。';
+
+function renderStat() {
+  const box = document.getElementById('statBody');
+  if (!box) return;
+  document.querySelectorAll('#statTermNav button').forEach(b => b.classList.toggle('active', b.dataset.t === statTerm));
+  if (statTerm === 'compare') { box.innerHTML = renderCompare(); return; }
+  const t = STAT_TERMS.find(x => x.key === statTerm);
+  if (!t || !STAT[statTerm]) { box.innerHTML = '<div class="empty">请先导入招生简章</div>'; return; }
+  const rows = statRowsOf(statTerm), s = statOf(rows);
+  document.getElementById('statSub').textContent =
+    `${t.name} · ${statCampus === '全部' ? '全部校区' : statCampus + '校区'} · ${rows.length} 个班`;
+  const cards = [
+    ['班级数量', statInt(s.classes), true], ['已招人数', statInt(s.enrolled), true],
+    ['学费合计', statMoney(s.fee), true], ['书杂费合计', statMoney(s.book), false],
+    ['总收入', statMoney(s.total), true], ['专业数', statInt(s.byMajor.size), false],
+  ].map(([k, v, hl]) => `<div class="stat-card${hl ? ' hl' : ''}"><div class="v">${v}</div><div class="k">${k}</div></div>`).join('');
+  const catCards = STAT_CATS.map(c =>
+    `<div class="stat-card"><div class="v">${statInt(s.cats[c] || 0)}</div><div class="k">${c}</div></div>`).join('');
+  const majorRows = [...s.byMajor.entries()].sort((a, b) => b[1].total - a[1].total).map(([k, v]) =>
+    `<tr><td class="t-name">${esc(k)}</td><td>${statInt(v.classes)}</td><td>${statInt(v.enrolled)}</td>` +
+    `<td>${statMoney(v.fee)}</td><td>${statMoney(v.book)}</td><td class="t-fee">${statMoney(v.total)}</td></tr>`).join('');
+  const countRows = m => [...m.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'zh-CN'))
+    .map(([k, v]) => `<tr><td class="t-name">${esc(k)}</td><td>${v}</td></tr>`).join('');
+  box.innerHTML = `<div class="stat-cards">${cards}</div>
+    <div class="stat-sec"><h3>班级分类<small>按招生对象-年级</small></h3>
+      <div class="stat-cards" style="padding:0;grid-template-columns:repeat(4,1fr)">${catCards}</div></div>
+    ${statTable('按专业统计', '班级数 = 专业出现次数', ['专业','出现次数','已招人数','学费合计','书杂费合计','收入合计'], majorRows)}
+    ${statTable('教室出现次数', '同一班级占多间教室时分别计次', ['教室','出现次数'], countRows(s.byRoom))}
+    ${statTable('教师出现次数', '按教师字段', ['教师','出现次数'], countRows(s.byTeacher))}
+    <div class="stat-note">${STAT_NOTE}</div>
+    <button class="export-btn" onclick="exportStatXlsx()">导出统计结果 .xlsx</button>`;
+}
+
+/* ---------- 三学期对比 ---------- */
+function compareData() {
+  const stats = STAT_TERMS.map(t => statOf(statRowsOf(t.key)));
+  const items = [
+    ['班级数量', s => s.classes, 'int'], ['已招人数', s => s.enrolled, 'int'],
+    ['学费合计', s => s.fee, 'money'], ['书杂费合计', s => s.book, 'money'],
+    ['总收入', s => s.total, 'money'], ['专业数', s => s.byMajor.size, 'int'],
+    ['教室数', s => s.byRoom.size, 'int'], ['教师数', s => s.byTeacher.size, 'int'],
+  ].concat(STAT_CATS.map(c => [c + '班级数', s => s.cats[c] || 0, 'int']));
+  return items.map(([label, get, type]) => {
+    const v = stats.map(get), diff = v[2] - v[0];
+    return { label, type, v, diff, pct: v[0] ? diff / v[0] * 100 : null };
+  });
+}
+function diffHtml(v, type) {
+  const cls = v > 0 ? 'diff-up' : v < 0 ? 'diff-down' : '';
+  const txt = (v > 0 ? '+' : '') + (type === 'money' ? statMoney(v) : statInt(v));
+  return `<span class="${cls}">${txt}</span>`;
+}
+function renderCompare() {
+  if (statLoaded().length !== 3) return '<div class="empty">需导入春季、暑期、秋季三份招生简章才能对比</div>';
+  const rows = compareData().map(x => {
+    const cls = x.diff > 0 ? 'diff-up' : x.diff < 0 ? 'diff-down' : '';
+    const pct = x.pct == null ? '—' : `<span class="${cls}">${x.diff > 0 ? '+' : ''}${x.pct.toFixed(1)}%</span>`;
+    return `<tr><td class="t-name">${x.label}</td>${x.v.map(v => `<td>${x.type === 'money' ? statMoney(v) : statInt(v)}</td>`).join('')}` +
+      `<td>${diffHtml(x.diff, x.type)}</td><td>${pct}</td></tr>`;
+  }).join('');
+  return `<div class="stat-note">差值 = 秋季 − 春季；增幅 = 差值 ÷ 春季。当前校区：${statCampus === '全部' ? '全部校区' : statCampus + '校区'}。${STAT_NOTE}</div>`
+    + statTable('春季 / 暑期 / 秋季 各项统计对比', '三份简章均已导入', ['统计项','春季','暑期','秋季','秋−春','增幅'], rows)
+    + `<button class="export-btn" onclick="exportStatXlsx()">导出对比结果 .xlsx</button>`;
+}
+
+/* ---------- 导出 .xlsx ---------- */
+function exportStatXlsx() {
+  if (typeof XLSX === 'undefined' || !XLSX.writeFile) { alert('导出组件尚未加载完成，请稍候再试'); return; }
+  const wb = XLSX.utils.book_new();
+  const cLabel = statCampus === '全部' ? '全部校区' : statCampus + '校区';
+  const add = (name, aoa) => XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), name);
+  let fname;
+  if (statTerm === 'compare') {
+    add('三学期对比', [['统计项','春季','暑期','秋季','秋−春','增幅%','校区']]
+      .concat(compareData().map(x => [x.label].concat(x.v, x.diff, x.pct == null ? '' : Number(x.pct.toFixed(2)), cLabel))));
+    fname = `培训部数据统计_三学期对比_${cLabel}.xlsx`;
+  } else {
+    const t = STAT_TERMS.find(x => x.key === statTerm);
+    const s = statOf(statRowsOf(statTerm));
+    add('概览', [['学期', t.name], ['校区', cLabel], ['统计项','数值'],
+      ['班级数量', s.classes], ['已招人数', s.enrolled], ['学费合计', s.fee],
+      ['书杂费合计', s.book], ['总收入', s.total], ['专业数', s.byMajor.size],
+      ['教室数', s.byRoom.size], ['教师数', s.byTeacher.size]]
+      .concat(STAT_CATS.map(c => [c + '班级数', s.cats[c] || 0])));
+    add('按专业统计', [['专业','出现次数','已招人数','学费合计','书杂费合计','收入合计']]
+      .concat([...s.byMajor.entries()].sort((a, b) => b[1].total - a[1].total)
+        .map(([k, v]) => [k, v.classes, v.enrolled, v.fee, v.book, v.total])));
+    add('专业出现次数', [['专业','出现次数']]
+      .concat([...s.byMajor.entries()].sort((a, b) => b[1].classes - a[1].classes).map(([k, v]) => [k, v.classes])));
+    add('教室出现次数', [['教室','出现次数']]
+      .concat([...s.byRoom.entries()].sort((a, b) => b[1] - a[1])));
+    add('教师出现次数', [['教师','出现次数']]
+      .concat([...s.byTeacher.entries()].sort((a, b) => b[1] - a[1])));
+    add('班级分类', [['类别','班级数']].concat(STAT_CATS.map(c => [c, s.cats[c] || 0])));
+    if (statLoaded().length === 3) {
+      add('三学期对比', [['统计项','春季','暑期','秋季','秋−春','增幅%']]
+        .concat(compareData().map(x => [x.label].concat(x.v, x.diff, x.pct == null ? '' : Number(x.pct.toFixed(2))))));
+    }
+    fname = `培训部数据统计_${t.name}_${cLabel}.xlsx`;
+  }
+  XLSX.writeFile(wb, fname);
+}
+
 function initQuery() {
   const xgC = DATA.classes.filter(k => k.c === '厦港').length;
   const zhC = DATA.classes.filter(k => k.c === '镇海').length;
@@ -972,6 +1332,14 @@ function initQuery() {
       refreshEnter();
     }
   } catch (e) {}
+  try {
+    const s = localStorage.getItem('agg_stat_v1');
+    if (s) {
+      const o = JSON.parse(s);
+      STAT = { spring: o.spring || null, summer: o.summer || null, autumn: o.autumn || null };
+    }
+  } catch (e) {}
+  initStatImport();
 })();
 </script>
 </body>
