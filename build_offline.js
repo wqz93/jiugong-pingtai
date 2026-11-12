@@ -49,9 +49,10 @@ const loader = `<script type="text/plain" id="xlsx-b64">${b64}</script>
 <script>`;
 html = html.replace(marker, loader + '\nconst DAYS = ');
 
+/* 单文件版已内嵌解析库，去掉「同域重试」提示与按钮参数，改为纯离线文案 */
 html = html.replace(
-  '解析库尚未加载完成，请稍候几秒再选文件；若一直提示请刷新页面（单独使用 HTML 文件时需联网）。',
-  '解析库加载失败，请刷新页面重试。'
+  /解析库尚未加载完成，请稍候几秒再点「重试加载解析库」（仅从本站重试，不依赖外网）。', true\)/g,
+  "解析库加载失败，请刷新页面重试（本文件已内置解析库，无需联网）。')"
 );
 if (offlineTitle) {
   html = html.replace('<title>移动端培训部聚合平台</title>', '<title>移动端培训部聚合平台 · 单文件离线版</title>');
