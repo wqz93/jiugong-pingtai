@@ -150,6 +150,27 @@
   .stat-sec h3 { font-size:13px; color:#1f2329; margin:0 0 6px 2px;
     display:flex; justify-content:space-between; align-items:baseline; gap:8px; }
   .stat-sec h3 small { font-size:10px; color:#a6acb5; font-weight:400; }
+  /* 可折叠统计表：标题整条可点击 */
+  .stat-fold-head { display:flex; box-sizing:border-box; width:100%; align-items:center; justify-content:space-between;
+    gap:8px; margin:0 0 6px; padding:10px 12px; background:#fff; border:1px solid #e5e6eb; border-radius:8px;
+    font:inherit; font-size:13px; font-weight:600; color:#1f2329; text-align:left; cursor:pointer;
+    -webkit-appearance:none; appearance:none; }
+  .stat-fold-head:active { background:#f2f6ff; }
+  .stat-fold-head.open { border-color:#2b5aed; background:#eef3ff; }
+  .stat-fold-head .fh-l { display:flex; flex-direction:column; gap:2px; min-width:0; }
+  .stat-fold-head .fh-l small { font-size:10px; color:#a6acb5; font-weight:400; }
+  .stat-fold-head .fh-r { display:flex; align-items:center; gap:8px; flex:0 0 auto; }
+  .stat-fold-head .fh-cnt { font-size:11px; color:#86909c; font-weight:400; }
+  .stat-fold-head .fh-arrow { color:#2b5aed; font-size:11px; font-weight:600; white-space:nowrap; }
+  /* 班级分类卡片：显示人数，点击展开班级明细 */
+  .stat-cat-cards { grid-template-columns:repeat(2,1fr); padding:0; }
+  .stat-cat { cursor:pointer; }
+  .stat-cat .cat-people { font-size:10px; color:#2b5aed; margin-top:3px; line-height:1.3; }
+  .stat-cat.open { border-color:#2b5aed; background:#eef3ff; }
+  .stat-cat.open .v { color:#2b5aed; }
+  .stat-cat-detail { margin-top:10px; }
+  .stat-cat-detail .cat-sum { font-size:11px; color:#86909c; margin:0 0 6px 2px; }
+  .stat-cat-detail .tbl-wrap { max-height:380px; overflow:auto; }
   .stat-note { font-size:11px; color:#86909c; line-height:1.65; margin:12px 16px 0;
     background:#f7f8fa; padding:8px 10px; border-radius:6px; }
   .export-btn { display:block; width:calc(100% - 32px); margin:16px; padding:11px 0; border:none; border-radius:8px;
@@ -1078,11 +1099,13 @@ function parseStatWorkbook(wb, fileName) {
 function statOf(rows) {
   const s = { classes: rows.length, enrolled:0, fee:0, book:0, total:0,
     cats: Object.fromEntries(STAT_CATS.map(c => [c, 0])),
+    catEnrolled: Object.fromEntries(STAT_CATS.map(c => [c, 0])),
     byMajor: new Map(), byRoom: new Map(), byTeacher: new Map() };
   rows.forEach(k => {
     const f = k.enrolled * k.fee, b = k.enrolled * k.book, t = k.enrolled * k.total;
     s.enrolled += k.enrolled; s.fee += f; s.book += b; s.total += t;
     s.cats[k.cat] = (s.cats[k.cat] || 0) + 1;
+    s.catEnrolled[k.cat] = (s.catEnrolled[k.cat] || 0) + k.enrolled;
     let m = s.byMajor.get(k.major);
     if (!m) { m = { classes:0, enrolled:0, fee:0, book:0, total:0 }; s.byMajor.set(k.major, m); }
     m.classes++; m.enrolled += k.enrolled; m.fee += f; m.book += b; m.total += t;
@@ -1104,6 +1127,32 @@ function statTable(title, note, heads, bodyHtml) {
     <div class="scroll-tip">左右滑动查看完整表格 →</div>
     <div class="tbl-wrap"><table class="tbl"><thead><tr>${heads.map(h => `<th>${h}</th>`).join('')}</tr></thead>
     <tbody>${bodyHtml || `<tr><td colspan="${heads.length}" style="text-align:center;color:#86909c">暂无数据</td></tr>`}</tbody></table></div></div>`;
+}
+/* 结果页的「按专业统计 / 教室出现次数 / 教师出现次数」默认折叠，点标题展开或收起。
+   展开状态跨校区、学期切换保持，方便连续对比。 */
+const STAT_FOLD = { major:false, room:false, teacher:false };
+function toggleStatFold(key) {
+  STAT_FOLD[key] = !STAT_FOLD[key];
+  const open = STAT_FOLD[key];
+  const body = document.getElementById('sfb-' + key);
+  const head = document.getElementById('sfh-' + key);
+  const arrow = document.getElementById('sfa-' + key);
+  if (body) body.style.display = open ? '' : 'none';
+  if (head) head.classList.toggle('open', open);
+  if (arrow) arrow.textContent = open ? '▴ 收起' : '▾ 展开';
+}
+function statFoldTable(key, title, note, heads, bodyHtml, cnt) {
+  const open = !!STAT_FOLD[key];
+  return `<div class="stat-sec">
+    <button type="button" id="sfh-${key}" class="stat-fold-head${open ? ' open' : ''}" onclick="toggleStatFold('${key}')">
+      <span class="fh-l">${esc(title)}${note ? `<small>${esc(note)}</small>` : ''}</span>
+      <span class="fh-r"><span class="fh-cnt">${statInt(cnt)} 项</span><span class="fh-arrow" id="sfa-${key}">${open ? '▴ 收起' : '▾ 展开'}</span></span>
+    </button>
+    <div id="sfb-${key}" style="display:${open ? '' : 'none'}">
+      <div class="scroll-tip">左右滑动查看完整表格 →</div>
+      <div class="tbl-wrap"><table class="tbl"><thead><tr>${heads.map(h => `<th>${h}</th>`).join('')}</tr></thead>
+      <tbody>${bodyHtml || `<tr><td colspan="${heads.length}" style="text-align:center;color:#86909c">暂无数据</td></tr>`}</tbody></table></div>
+    </div></div>`;
 }
 
 /* ---------- 导入页 ---------- */
@@ -1201,7 +1250,31 @@ function setStatTerm(t) {
   document.querySelectorAll('#statTermNav button').forEach(b => b.classList.toggle('active', b.dataset.t === t));
   renderStat();
 }
-const STAT_NOTE = '口径：校区取「区域」字段；已招人数取「已招学员」列；学费 / 书杂费 / 总收入 = 该班已招人数 × 对应单价后求和。班级分类按「招生对象-年级」范围：起始为成人→青年班，起始在幼儿阶段→幼儿班，起始≥小学一年级且结束≤高中三年级→少儿班，其余→未归类。';
+const STAT_NOTE = '口径：校区取「区域」字段；已招人数取「已招学员」列；学费 / 书杂费 / 总收入 = 该班已招人数 × 对应单价后求和。班级分类按「招生对象-年级」范围：起始为成人→青年班，起始在幼儿阶段→幼儿班，起始≥小学一年级且结束≤高中三年级→少儿班，其余→未归类。班级明细中的学费、总计为招生简章中的单价。';
+
+/* 点击分类卡片 → 展开该分类下的班级明细；再点一次收起。
+   只渲染当前展开的一个明细表，避免一次生成上百行无效 DOM。 */
+let statCatOpen = '';
+function toggleStatCat(i) {
+  const c = STAT_CATS[i];
+  statCatOpen = statCatOpen === c ? '' : c;
+  renderStat();
+}
+function statCatDetail(c, rows) {
+  const list = rows.filter(r => r.cat === c).sort((a, b) =>
+    a.campus.localeCompare(b.campus, 'zh-CN') || a.major.localeCompare(b.major, 'zh-CN') || a.n.localeCompare(b.n, 'zh-CN'));
+  const people = list.reduce((n, r) => n + r.enrolled, 0);
+  const body = list.map(r => `<tr>
+    <td class="t-name">${esc(r.n)}</td><td>${esc(r.campus)}</td><td>${esc(r.major)}</td>
+    <td class="t-grade">${esc(r.grade) || '—'}</td><td>${esc(r.rooms.join(' / ')) || '—'}</td>
+    <td>${esc(r.teacher)}</td><td>${statInt(r.enrolled)}</td>
+    <td>${statMoney(r.fee)}</td><td class="t-fee">${statMoney(r.total)}</td></tr>`).join('');
+  return `<div class="stat-cat-detail">
+    <div class="cat-sum">${esc(c)} · 共 ${statInt(list.length)} 个班 · 已招 ${statInt(people)} 人（表格可上下、左右滑动）</div>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr>
+      <th>班级名称</th><th>校区</th><th>专业</th><th>招生年级</th><th>教室</th><th>教师</th><th>已招人数</th><th>学费单价</th><th>总计单价</th>
+    </tr></thead><tbody>${body || '<tr><td colspan="9" style="text-align:center;color:#86909c">暂无班级</td></tr>'}</tbody></table></div></div>`;
+}
 
 function renderStat() {
   const box = document.getElementById('statBody');
@@ -1218,19 +1291,22 @@ function renderStat() {
     ['学费合计', statMoney(s.fee), true], ['书杂费合计', statMoney(s.book), false],
     ['总收入', statMoney(s.total), true], ['专业数', statInt(s.byMajor.size), false],
   ].map(([k, v, hl]) => `<div class="stat-card${hl ? ' hl' : ''}"><div class="v">${v}</div><div class="k">${k}</div></div>`).join('');
-  const catCards = STAT_CATS.map(c =>
-    `<div class="stat-card"><div class="v">${statInt(s.cats[c] || 0)}</div><div class="k">${c}</div></div>`).join('');
+  const catCards = STAT_CATS.map((c, i) =>
+    `<div class="stat-card stat-cat${statCatOpen === c ? ' open' : ''}" onclick="toggleStatCat(${i})">
+      <div class="v">${statInt(s.cats[c] || 0)}</div><div class="k">${c}</div>
+      <div class="cat-people">已招 ${statInt(s.catEnrolled[c] || 0)} 人</div></div>`).join('');
   const majorRows = [...s.byMajor.entries()].sort((a, b) => b[1].total - a[1].total).map(([k, v]) =>
     `<tr><td class="t-name">${esc(k)}</td><td>${statInt(v.classes)}</td><td>${statInt(v.enrolled)}</td>` +
     `<td>${statMoney(v.fee)}</td><td>${statMoney(v.book)}</td><td class="t-fee">${statMoney(v.total)}</td></tr>`).join('');
   const countRows = m => [...m.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'zh-CN'))
     .map(([k, v]) => `<tr><td class="t-name">${esc(k)}</td><td>${v}</td></tr>`).join('');
   box.innerHTML = `<div class="stat-cards">${cards}</div>
-    <div class="stat-sec"><h3>班级分类<small>按招生对象-年级</small></h3>
-      <div class="stat-cards" style="padding:0;grid-template-columns:repeat(4,1fr)">${catCards}</div></div>
-    ${statTable('按专业统计', '班级数 = 专业出现次数', ['专业','出现次数','已招人数','学费合计','书杂费合计','收入合计'], majorRows)}
-    ${statTable('教室出现次数', '同一班级占多间教室时分别计次', ['教室','出现次数'], countRows(s.byRoom))}
-    ${statTable('教师出现次数', '按教师字段', ['教师','出现次数'], countRows(s.byTeacher))}
+    <div class="stat-sec"><h3>班级分类<small>按招生对象-年级 · 点击卡片查看班级</small></h3>
+      <div class="stat-cards stat-cat-cards">${catCards}</div>
+      ${statCatOpen ? statCatDetail(statCatOpen, rows) : ''}</div>
+    ${statFoldTable('major', '按专业统计', '班级数 = 专业出现次数', ['专业','出现次数','已招人数','学费合计','书杂费合计','收入合计'], majorRows, s.byMajor.size)}
+    ${statFoldTable('room', '教室出现次数', '同一班级占多间教室时分别计次', ['教室','出现次数'], countRows(s.byRoom), s.byRoom.size)}
+    ${statFoldTable('teacher', '教师出现次数', '按教师字段', ['教师','出现次数'], countRows(s.byTeacher), s.byTeacher.size)}
     <div class="stat-note">${STAT_NOTE}</div>
     <button class="export-btn" onclick="exportStatXlsx()">导出统计结果 .xlsx</button>`;
 }
@@ -1243,7 +1319,8 @@ function compareData() {
     ['学费合计', s => s.fee, 'money'], ['书杂费合计', s => s.book, 'money'],
     ['总收入', s => s.total, 'money'], ['专业数', s => s.byMajor.size, 'int'],
     ['教室数', s => s.byRoom.size, 'int'], ['教师数', s => s.byTeacher.size, 'int'],
-  ].concat(STAT_CATS.map(c => [c + '班级数', s => s.cats[c] || 0, 'int']));
+  ].concat(STAT_CATS.map(c => [c + '班级数', s => s.cats[c] || 0, 'int']))
+   .concat(STAT_CATS.map(c => [c + '已招人数', s => s.catEnrolled[c] || 0, 'int']));
   return items.map(([label, get, type]) => {
     const v = stats.map(get), diff = v[2] - v[0];
     return { label, type, v, diff, pct: v[0] ? diff / v[0] * 100 : null };
@@ -1285,7 +1362,8 @@ function exportStatXlsx() {
       ['班级数量', s.classes], ['已招人数', s.enrolled], ['学费合计', s.fee],
       ['书杂费合计', s.book], ['总收入', s.total], ['专业数', s.byMajor.size],
       ['教室数', s.byRoom.size], ['教师数', s.byTeacher.size]]
-      .concat(STAT_CATS.map(c => [c + '班级数', s.cats[c] || 0])));
+      .concat(STAT_CATS.map(c => [c + '班级数', s.cats[c] || 0]))
+      .concat(STAT_CATS.map(c => [c + '已招人数', s.catEnrolled[c] || 0])));
     add('按专业统计', [['专业','出现次数','已招人数','学费合计','书杂费合计','收入合计']]
       .concat([...s.byMajor.entries()].sort((a, b) => b[1].total - a[1].total)
         .map(([k, v]) => [k, v.classes, v.enrolled, v.fee, v.book, v.total])));
@@ -1295,7 +1373,11 @@ function exportStatXlsx() {
       .concat([...s.byRoom.entries()].sort((a, b) => b[1] - a[1])));
     add('教师出现次数', [['教师','出现次数']]
       .concat([...s.byTeacher.entries()].sort((a, b) => b[1] - a[1])));
-    add('班级分类', [['类别','班级数']].concat(STAT_CATS.map(c => [c, s.cats[c] || 0])));
+    add('班级分类', [['类别','班级数','已招人数']]
+      .concat(STAT_CATS.map(c => [c, s.cats[c] || 0, s.catEnrolled[c] || 0])));
+    add('班级分类明细', [['类别','班级名称','校区','专业','招生年级','教室','教师','已招人数','学费单价','书杂费单价','总计单价']]
+      .concat(statRowsOf(statTerm).map(r => [r.cat, r.n, r.campus, r.major, r.grade,
+        r.rooms.join(' / '), r.teacher, r.enrolled, r.fee, r.book, r.total])));
     if (statLoaded().length === 3) {
       add('三学期对比', [['统计项','春季','暑期','秋季','秋−春','增幅%']]
         .concat(compareData().map(x => [x.label].concat(x.v, x.diff, x.pct == null ? '' : Number(x.pct.toFixed(2))))));
