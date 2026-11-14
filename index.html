@@ -357,7 +357,7 @@ function xlsxRetry(n) {
     <!-- 班级名称查询 -->
     <div class="card" id="panel-name" style="display:none">
       <h2>班级名称查询</h2>
-      <div class="tip">输入班级名称里的任意字符即可模糊搜索招生简章（如输入「舞蹈」可匹配「少儿舞蹈提高」）；不连续的字符按顺序出现也能命中（如「舞提」）。结果按上课时间排序，点顶部校区可切换。</div>
+      <div class="tip">输入班级名称里的任意字符即可模糊搜索招生简章（如输入「舞蹈」可匹配「少儿舞蹈提高」）；不连续的字符按顺序出现也能命中（如「舞提」）。结果按上课时间排序，点顶部校区可切换。「招生范围」取自招生简章的「招生对象-年级」列，完整表格可左右滑动查看。</div>
       <div class="row">
         <input type="text" id="nameInput" placeholder="如：舞蹈 / 钢琴 / 少儿" onkeydown="if(event.key==='Enter')queryName()">
         <button class="btn" onclick="queryName()">查询</button>
@@ -842,14 +842,15 @@ function queryName() {
   box.innerHTML = `<div class="summary">「${esc(campus)}校区」匹配到 ${rows.length} 个班 · 按上课时间排序${otherTip}</div>
   <div class="scroll-tip">左右滑动查看完整表格 →</div>
   <div class="tbl-wrap"><table class="tbl">
-    <thead><tr><th>班级名称</th><th>教室</th><th>上课时间</th><th>教师</th><th>剩余名额</th><th>学费</th></tr></thead>
+    <thead><tr><th>班级名称</th><th>招生范围</th><th>上课时间</th><th>学费</th><th>教室</th><th>剩余名额</th><th>教师</th></tr></thead>
     <tbody>${rows.map(({ k, html }) => `<tr${fullRowCls(k)}>
       <td class="t-name">${html}</td>
-      <td class="t-room">${esc(k.rooms.join('、')) || '—'}</td>
+      <td class="t-grade">${esc(String(k.grade || '').trim()) || '—'}</td>
       <td class="t-time">${esc(k.time) || '未定'}</td>
-      <td>${esc(k.t)}</td>
-      <td class="${k.left == null ? '' : k.left > 0 ? 't-ok' : 't-full'}">${k.left == null ? '—' : k.left > 0 ? '剩' + k.left : '已满'}</td>
       <td class="t-fee">${fmtFee(k.fee)}</td>
+      <td class="t-room">${esc(k.rooms.join('、')) || '—'}</td>
+      <td class="${k.left == null ? '' : k.left > 0 ? 't-ok' : 't-full'}">${k.left == null ? '—' : k.left > 0 ? '剩' + k.left : '已满'}</td>
+      <td>${esc(k.t)}</td>
     </tr>`).join('')}</tbody></table></div>`;
 }
 
