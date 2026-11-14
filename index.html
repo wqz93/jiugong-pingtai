@@ -1110,17 +1110,22 @@ function statEndpoints(raw) {
   if (!parts.length) return [null, null];
   return [statGradeIdx(parts[0]), statGradeIdx(parts[parts.length - 1])];
 }
-/* 起始=成人 → 青年班；起始在幼儿阶段 → 幼儿班；
-   起始≥小学一年级且结束≤高中三年级 → 少儿班；其余 → 未归类 */
+/* 班级分类：按「招生对象-年级」范围的两个端点同时判断，范围须完整落在对应学段内。
+   幼儿班：起始 ≥ 幼儿      且 结束 ≤ 幼儿大班
+   少儿班：起始 ≥ 小学一年级 且 结束 ≤ 高中三年级
+   青年班：起始 ≥ 成人      且 结束 ≤ 成人（即两端都是成人）
+   其余（跨学段，如「幼儿大班~小学六年级」「幼儿~成人」）→ 未归类 */
 function statCategory(raw) {
   const [a, b] = statEndpoints(raw);
-  if (a == null || b == null) return '未归类';
-  const primary = GRADE_INDEX.get('小学一年级');
-  const senior  = GRADE_INDEX.get('高中三年级');
-  const adult   = GRADE_INDEX.get('成人');
-  if (a === adult) return '青年班';
-  if (a < primary) return '幼儿班';
+  if (a == null || b == null || a > b) return '未归类';
+  const infant    = GRADE_INDEX.get('幼儿');
+  const infantTop = GRADE_INDEX.get('幼儿大班');
+  const primary   = GRADE_INDEX.get('小学一年级');
+  const senior    = GRADE_INDEX.get('高中三年级');
+  const adult     = GRADE_INDEX.get('成人');
+  if (a >= infant && b <= infantTop) return '幼儿班';
   if (a >= primary && b <= senior) return '少儿班';
+  if (a >= adult && b <= adult) return '青年班';
   return '未归类';
 }
 
@@ -1315,7 +1320,7 @@ function setStatTerm(t) {
   document.querySelectorAll('#statTermNav button').forEach(b => b.classList.toggle('active', b.dataset.t === t));
   renderStat();
 }
-const STAT_NOTE = '口径：校区取「区域」字段；已招人数取「已招学员」列；学费 / 书杂费 / 总收入 = 该班已招人数 × 对应单价后求和。班级分类按「招生对象-年级」范围：起始为成人→青年班，起始在幼儿阶段→幼儿班，起始≥小学一年级且结束≤高中三年级→少儿班，其余→未归类。班级明细中的学费、总计为招生简章中的单价。';
+const STAT_NOTE = '口径：校区取「区域」字段；已招人数取「已招学员」列；学费 / 书杂费 / 总收入 = 该班已招人数 × 对应单价后求和。班级分类按「招生对象-年级」范围，两端须完整落在同一学段：起始≥幼儿且结束≤幼儿大班→幼儿班；起始≥小学一年级且结束≤高中三年级→少儿班；起始≥成人且结束≤成人→青年班；其余（跨学段，如幼儿大班~小学六年级、幼儿~成人）→未归类。班级明细中的学费、总计为招生简章中的单价。';
 
 /* 点击分类卡片 → 展开该分类下的班级明细；再点一次收起。
    只渲染当前展开的一个明细表，避免一次生成上百行无效 DOM。 */
@@ -1367,6 +1372,7 @@ function renderStat() {
     .map(([k, v]) => `<tr><td class="t-name">${esc(k)}</td><td>${v}</td></tr>`).join('');
   box.innerHTML = `<div class="stat-cards">${cards}</div>
     <div class="stat-sec"><h3>班级分类<small>按招生对象-年级 · 点击卡片查看班级</small></h3>
+      <div style="font-size:11px;color:#86909c;line-height:1.6;margin:0 2px 8px">范围须完整落在同一学段：幼儿班 幼儿~幼儿大班 ｜ 少儿班 小学一年级~高中三年级 ｜ 青年班 成人~成人 ｜ 其余归未归类</div>
       <div class="stat-cards stat-cat-cards">${catCards}</div>
       ${statCatOpen ? statCatDetail(statCatOpen, rows) : ''}</div>
     ${statFoldTable('major', '按专业统计', '班级数 = 专业出现次数', ['专业','出现次数','已招人数','学费合计','书杂费合计','收入合计'], majorRows, s.byMajor.size)}
@@ -1500,10 +1506,15 @@ function initQuery() {
     }
   } catch (e) {}
   try {
-    const s = localStorage.getItem('agg_stat_v1');
+    const s = localStorage.getItem(STAT_CACHE);
     if (s) {
       const o = JSON.parse(s);
       STAT = { spring: o.spring || null, summer: o.summer || null, autumn: o.autumn || null };
+      /* 分类口径调整后，旧缓存里已存的 cat 按当前规则重算，用户无需重新导入三份简章 */
+      STAT_TERMS.forEach(t => {
+        const d = STAT[t.key];
+        if (d && d.rows && d.rows.length) d.rows.forEach(r => { r.cat = statCategory(r.grade); });
+      });
     }
   } catch (e) {}
   initStatImport();
