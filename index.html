@@ -133,6 +133,11 @@ function xlsxRetry(n) {
   @media (max-width: 480px) { .scroll-tip { display:block; } }
   .tbl td.t-room { font-weight:600; white-space:normal; min-width:72px; }
   .tbl td.t-func { color:#86909c; white-space:normal; min-width:64px; }
+  /* 空教室查询：功能被截断时，点功能列单元格弹框查看全部功能 */
+  .tbl td.t-func.func-cell { cursor:pointer; }
+  .tbl td.t-func.func-cell:active { background:#eef3ff; }
+  .func-more { display:inline-block; margin-left:5px; padding:1px 5px; border-radius:4px;
+    background:#eef3ff; color:#2b5aed; font-size:10px; white-space:nowrap; }
   .tbl td.c-free { color:#00b42a; background:#f0fbf4; text-align:center; font-weight:600; }
   .tbl td.c-busy { color:#c9cdd4; text-align:center; }
   .tbl th.c-slot { text-align:center; min-width:44px; }
@@ -204,6 +209,15 @@ function xlsxRetry(n) {
   .wx-dialog .wx-btns { display:flex; gap:10px; }
   .wx-dialog .wx-btns button { flex:1; padding:10px 0; border-radius:8px; font-size:13px; border:1px solid #e5e6eb; background:#fff; color:#4e5969; }
   .wx-dialog .wx-btns button.primary { background:#2b5aed; border-color:#2b5aed; color:#fff; font-weight:600; }
+  /* 教室功能详情弹层：不用 flex gap，兼容旧版微信 X5/TBS 内核 */
+  .wx-dialog .fp-body { max-height:60vh; overflow-y:auto; margin:12px 0 14px; }
+  .wx-dialog .fp-meta { font-size:11px; color:#86909c; margin-bottom:9px; }
+  .wx-dialog .fp-list { margin-bottom:10px; font-size:0; }
+  .wx-dialog .fp-list span { display:inline-block; margin:0 6px 6px 0; padding:5px 9px;
+    background:#eef3ff; border:1px solid #d6e4ff; border-radius:6px;
+    font-size:12px; line-height:1.4; color:#2b5aed; word-break:break-all; }
+  .wx-dialog .fp-text { background:#f7f8fa; border-radius:6px; padding:9px 11px;
+    font-size:12px; line-height:1.8; color:#4e5969; word-break:break-all; }
   @media (max-width:360px) { .stat-cards { grid-template-columns:repeat(2,1fr); } }
 </style>
 </head>
@@ -387,7 +401,7 @@ function xlsxRetry(n) {
     <!-- 空教室查询 -->
     <div class="card" id="panel-free" style="display:none">
       <h2>空教室查询</h2>
-      <div class="tip">点星期按钮即自动刷新列表。周末每天 6 节（上午 2 节、下午 2 节、晚上 2 节），周一至周五仅晚上 2 节。表格按教室号升序（数字教室在前、特殊场地在后），「空」为空闲时段，「—」为已排课，可左右滑动查看。</div>
+      <div class="tip">点星期按钮即自动刷新列表。周末每天 6 节（上午 2 节、下午 2 节、晚上 2 节），周一至周五仅晚上 2 节。表格按教室号升序（数字教室在前、特殊场地在后），「空」为空闲时段，「—」为已排课，可左右滑动查看。功能列过长会省略，点该单元格可弹框查看全部功能。</div>
       <div class="days" id="dayChips"></div>
       <button class="btn" style="width:100%" onclick="queryFree()">刷新空教室</button>
       <div class="result" id="freeResult"></div>
@@ -416,6 +430,19 @@ function xlsxRetry(n) {
       <button type="button" onclick="hideWxExportTip()">知道了</button>
       <button type="button" class="primary" onclick="wxExportAnyway()">仍然尝试导出</button>
     </div>
+  </div>
+</div>
+
+<!-- 教室功能详情：空教室查询的功能列被截断时，点单元格查看该教室全部功能 -->
+<div class="wx-mask" id="funcPopup" style="display:none" onclick="hideFuncPopup(event)">
+  <div class="wx-dialog">
+    <h3 id="fpTitle">教室功能详情</h3>
+    <div class="fp-body">
+      <div class="fp-meta" id="fpMeta"></div>
+      <div class="fp-list" id="fpList"></div>
+      <div class="fp-text" id="fpText"></div>
+    </div>
+    <div class="wx-btns"><button type="button" class="primary" onclick="hideFuncPopup()">关闭</button></div>
   </div>
 </div>
 
@@ -978,6 +1005,29 @@ function compareRoomName(a, b) {
 }
 
 /* 空教室：矩阵表格，按教室升序 */
+/* 空教室查询：表格里的功能列只显示前 2 项，完整功能存在缓存里，
+   点单元格按索引取出后弹框展示；不把长文本塞进 HTML 属性，避免转义问题 */
+const FREE_FUNC_CACHE = [];
+function showFreeFuncPopup(i) {
+  const item = FREE_FUNC_CACHE[i];
+  if (!item) return;
+  const funcs = item.funcs || [];
+  const none = funcs.length === 1 && funcs[0] === '未登记';
+  document.getElementById('fpTitle').textContent = item.campus + '教室' + item.room;
+  document.getElementById('fpMeta').textContent =
+    (item.day ? item.day + ' · ' : '') + '共 ' + funcs.length + ' 项功能';
+  document.getElementById('fpList').innerHTML = funcs.map(f => '<span>' + esc(f) + '</span>').join('');
+  document.getElementById('fpText').textContent = none
+    ? '教室功能表中该教室未填写功能，页面显示「未登记」。'
+    : '完整功能：' + funcs.join('、');
+  document.getElementById('funcPopup').style.display = '';
+}
+/* 点遮罩空白处关闭；点弹框内部不关闭（event.target 不是遮罩本身） */
+function hideFuncPopup(e) {
+  if (e && e.target && e.target.id !== 'funcPopup') return;
+  const p = document.getElementById('funcPopup');
+  if (p) p.style.display = 'none';
+}
 function queryFree() {
   const box = document.getElementById('freeResult');
   const defs = slotDef(freeDay);
@@ -991,14 +1041,21 @@ function queryFree() {
   });
   // 按教室升序（数字教室号在前，特殊场地在后）
   rows.sort((a, b) => compareRoomName(a.r.name, b.r.name));
+  FREE_FUNC_CACHE.length = 0;   // 每次刷新重建索引，防止切换星期后索引错位
   box.innerHTML = `<div class="summary">${DAYS[freeDay - 1]} · 全天空闲 ${fullFree} 间 / 共 ${rows.length} 间 · 按教室升序 · 列含义：${defs.map(d => d.short + '=' + d.label).join('，')}</div>
   <div class="tbl-wrap"><table class="tbl">
     <thead><tr><th>教室</th><th>功能</th>${defs.map(d => `<th class="c-slot">${d.short}</th>`).join('')}</tr></thead>
-    <tbody>${rows.map(({r, busy}) => `<tr>
+    <tbody>${rows.map(({r, busy}) => {
+      const idx = FREE_FUNC_CACHE.length;
+      FREE_FUNC_CACHE.push({ room:r.name, campus:campus, funcs:r.funcs.slice(), day:DAYS[freeDay - 1] });
+      const brief = funcBrief(r);
+      const clipped = brief.indexOf('…') >= 0;
+      return `<tr>
       <td class="t-room">${esc(r.name)}</td>
-      <td class="t-func">${esc(funcBrief(r))}</td>
+      <td class="t-func func-cell" onclick="showFreeFuncPopup(${idx})">${esc(brief)}${clipped ? '<span class="func-more">查看全部</span>' : ''}</td>
       ${busy.map(b => b ? '<td class="c-busy">—</td>' : '<td class="c-free">空</td>').join('')}
-    </tr>`).join('')}</tbody></table></div>`;
+    </tr>`;
+    }).join('')}</tbody></table></div>`;
 }
 
 /* ================= 晚课查询 ================= */
