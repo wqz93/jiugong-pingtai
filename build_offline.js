@@ -24,7 +24,7 @@ if (!loadRe.test(html)) throw new Error('未找到库加载片段');
 html = html.replace(loadRe, '<!-- 单文件版：SheetJS 以 base64 内嵌，全程零网络请求 -->');
 
 /* 2. 用 DOM textContent 注入库代码，规避 HTML 对 <!-- / </script> 的解析问题 */
-const marker = '<script>\nconst DAYS = ';
+const marker = '<script>\n';
 if (!html.includes(marker)) throw new Error('未找到业务脚本起点');
 const loader = `<script type="text/plain" id="xlsx-b64">${b64}</script>
 <script>
@@ -47,7 +47,7 @@ const loader = `<script type="text/plain" id="xlsx-b64">${b64}</script>
 })();
 </script>
 <script>`;
-html = html.replace(marker, loader + '\nconst DAYS = ');
+html = html.replace(marker, loader + '\n');
 
 /* 单文件版已内嵌解析库，去掉「同域重试」提示与按钮参数，改为纯离线文案 */
 html = html.replace(
@@ -73,7 +73,7 @@ for (const key of ['id="panel-grade"', 'id="panel-name"', 'function queryGrade',
 const els = {};
 const el = id => (els[id] || (els[id] = {
   id, value: '', innerHTML: '', textContent: id === 'xlsx-b64' ? b64 : '', style: {}, dataset: {}, files: [],
-  classList: { add() {}, remove() {}, toggle() {} }, click() {},
+  classList: { add() {}, remove() {}, toggle() {} }, click() {}, focus() {},
 }));
 let ctx;
 const document = {
@@ -83,8 +83,9 @@ const document = {
   head: { appendChild(node) { vm.runInContext(node.textContent, ctx, { filename: 'xlsx.inline.js' }); } },
 };
 const localStorage = { _d: {}, getItem(k) { return this._d[k] || null; }, setItem(k, v) { this._d[k] = v; }, removeItem(k) { delete this._d[k]; } };
+const sessionStorage = { _d: {}, getItem(k) { return this._d[k] || null; }, setItem(k, v) { this._d[k] = v; }, removeItem(k) { delete this._d[k]; } };
 ctx = vm.createContext({
-  document, localStorage, console,
+  document, localStorage, sessionStorage, console,
   atob: s => Buffer.from(s, 'base64').toString('binary'),
   TextDecoder, Uint8Array, escape, decodeURIComponent, FileReader: function () {},
 });
@@ -96,19 +97,22 @@ if (!ctx.XLSX || typeof ctx.XLSX.read !== 'function') throw new Error('内嵌库
 if (ctx.window.__xlsxErr) throw new Error('库解码失败：' + ctx.window.__xlsxErr);
 if (typeof ctx.queryGrade !== 'function' || typeof ctx.gradeSet !== 'function') throw new Error('年级查询脚本未生效');
 
-/* 若真实 Excel 在，顺便跑一次端到端（505 班 + 年级查询） */
-const zsPath = 'E:/桌面/移动端聚合平台/招生简章.xls';
+/* 若真实 Excel 在，顺便跑一次端到端（班级数动态校验 + 年级查询）。
+   招生简章可能被改名/拆成春暑秋三份，按候选顺序取第一份存在的文件 */
+const zsPath = ['招生简章.xls', '2026春季招生简章.xls', '2026暑期招生简章.xls', '2026秋季招生简章.xls']
+  .map(function (f) { return path.join('E:/桌面/移动端聚合平台', f); })
+  .filter(fs.existsSync)[0];
 const rfPath = 'E:/桌面/移动端聚合平台/教室功能.xlsx';
-if (fs.existsSync(zsPath) && fs.existsSync(rfPath)) {
+if (zsPath && fs.existsSync(rfPath)) {
   ctx.__wbZ = ctx.XLSX.read(fs.readFileSync(zsPath), { type: 'buffer' });
   ctx.__wbR = ctx.XLSX.read(fs.readFileSync(rfPath), { type: 'buffer' });
   vm.runInContext('DATA = mergeData(parseZhaosheng(__wbZ), parseRoomFunc(__wbR))', ctx);
   const n = vm.runInContext('DATA.classes.length', ctx);
-  if (n !== 505) throw new Error('真实 Excel 班级数异常：' + n);
+  if (!(n > 0)) throw new Error('真实 Excel 班级数异常：' + n);
   el('gradeSelect').value = '小学二年级';
   vm.runInContext("campus='厦港'; queryGrade()", ctx);
   if (!el('gradeResult').innerHTML.includes('招生年级')) throw new Error('年级查询结果异常');
-  console.log('端到端自检：505 班，年级查询正常');
+  console.log('端到端自检：' + n + ' 班，年级查询正常（' + path.basename(zsPath) + '）');
 }
 
 console.log('OK  ' + outPath + '  ' + Buffer.byteLength(html) + ' bytes');

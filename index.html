@@ -218,6 +218,10 @@ function xlsxRetry(n) {
     font-size:12px; line-height:1.4; color:#2b5aed; word-break:break-all; }
   .wx-dialog .fp-text { background:#f7f8fa; border-radius:6px; padding:9px 11px;
     font-size:12px; line-height:1.8; color:#4e5969; word-break:break-all; }
+  /* 数据统计密码验证：输入框用 16px，避免 iOS 微信自动放大页面 */
+  .wx-dialog .pwd-input { width:100%; box-sizing:border-box; margin:10px 0 0; padding:10px 11px;
+    border:1px solid #e5e6eb; border-radius:8px; background:#fff; font-size:16px; color:#1f2329; }
+  .wx-dialog .pwd-err { min-height:18px; margin-top:6px; font-size:12px; line-height:1.5; color:#f53f3f; }
   @media (max-width:360px) { .stat-cards { grid-template-columns:repeat(2,1fr); } }
 </style>
 </head>
@@ -239,7 +243,7 @@ function xlsxRetry(n) {
       <div class="entry" onclick="goEntry('stat-import')">
         <div class="entry-icon" style="background:#fff7e8;color:#ff7d00">统计</div>
         <div class="entry-name">数据统计</div>
-        <div class="entry-desc">春季 / 暑期 / 秋季 · 按校区统计与对比</div>
+        <div class="entry-desc">春季 / 暑期 / 秋季 · 按校区统计与对比（需密码）</div>
       </div>
       <div class="entry disabled">
         <div class="entry-icon" style="background:#f2f3f5;color:#a9aeb8">待</div>
@@ -446,7 +450,27 @@ function xlsxRetry(n) {
   </div>
 </div>
 
+<!-- 数据统计入口密码验证 -->
+<div class="wx-mask" id="statPwdPopup" style="display:none" onclick="hideStatPwd(event)">
+  <div class="wx-dialog">
+    <h3>数据统计 · 密码验证</h3>
+    <p>请输入密码后进入数据统计。</p>
+    <input type="password" id="statPwdInput" class="pwd-input" placeholder="请输入访问密码" autocomplete="off"
+           onkeydown="if(event.key==='Enter')checkStatPwd()">
+    <div class="pwd-err" id="statPwdErr"></div>
+    <div class="wx-btns">
+      <button type="button" onclick="hideStatPwd()">取消</button>
+      <button type="button" class="primary" onclick="checkStatPwd()">确定</button>
+    </div>
+  </div>
+</div>
+
 <script>
+/* 数据统计入口密码：写死在页面内，仅防误触，查看网页源码即可看到，不是真正的访问控制 */
+const STAT_PASSWORD = 'sngpxb';
+const STAT_AUTH_KEY = 'agg_stat_auth';
+let statUnlocked = false;
+let statPending = 'page-stat-import';
 const DAYS = ['周一','周二','周三','周四','周五','周六','周日'];
 const DAYMAP = {'一':1,'二':2,'三':3,'四':4,'五':5,'六':6,'日':7};
 /* 兼容旧版微信 X5/TBS 内核：不用 String.matchAll（Chrome 73+），改用 match + 映射 */
@@ -720,8 +744,16 @@ function resetData() {
 
 /* ================= 页面切换 ================= */
 const PAGES = ['page-home', 'page-import', 'page-query', 'page-stat-import', 'page-stat'];
+const STAT_PAGES = ['page-stat-import', 'page-stat'];
 function showPage(id) {
+  /* 所有进入数据统计页面的路径都在这里拦一道：首页入口、重新导入、控制台直跳 */
+  if (STAT_PAGES.indexOf(id) >= 0 && !statAuthOk()) {
+    statPending = id;
+    openStatPwd();
+    return false;
+  }
   PAGES.forEach(p => document.getElementById(p).style.display = p === id ? '' : 'none');
+  return true;
 }
 function goHome() { showPage('page-home'); }
 function goEntry(entry) {
@@ -734,6 +766,46 @@ function enterQuery() {
   initQuery();
 }
 function goImport() { showPage('page-import'); }
+
+/* ================= 数据统计密码验证 ================= */
+/* 通过验证后只在同一标签页会话内免重复输入；关掉标签页或换浏览器需重新验证 */
+function statAuthOk() {
+  if (statUnlocked) return true;
+  try {
+    if (sessionStorage.getItem(STAT_AUTH_KEY) === '1') { statUnlocked = true; return true; }
+  } catch (e) {}
+  return false;
+}
+function openStatPwd() {
+  const input = document.getElementById('statPwdInput');
+  input.value = '';
+  document.getElementById('statPwdErr').textContent = '';
+  document.getElementById('statPwdPopup').style.display = 'flex';
+  setTimeout(function () { try { input.focus(); } catch (e) {} }, 80);
+}
+function hideStatPwd(e) {
+  if (e && e.target && e.target !== document.getElementById('statPwdPopup')) return;
+  document.getElementById('statPwdPopup').style.display = 'none';
+  document.getElementById('statPwdErr').textContent = '';
+}
+function checkStatPwd() {
+  const input = document.getElementById('statPwdInput');
+  const v = String(input.value == null ? '' : input.value);
+  if (v !== STAT_PASSWORD) {
+    document.getElementById('statPwdErr').textContent = '密码不正确，请重新输入';
+    input.value = '';
+    try { input.focus(); } catch (e) {}
+    return false;
+  }
+  statUnlocked = true;
+  try { sessionStorage.setItem(STAT_AUTH_KEY, '1'); } catch (e) {}
+  document.getElementById('statPwdErr').textContent = '';
+  document.getElementById('statPwdPopup').style.display = 'none';
+  const target = statPending || 'page-stat-import';
+  statPending = 'page-stat-import';
+  showPage(target);   /* 已解锁，回到用户原本想进的页面；该页内容由调用方初始化 */
+  return true;
+}
 
 /* ================= 查询页 ================= */
 const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
