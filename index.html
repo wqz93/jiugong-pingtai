@@ -21,6 +21,8 @@ function xlsxRetry(n) {
 }
 </script>
 <script defer src="xlsx.full.min.js" onerror="xlsxRetry(0)"></script>
+<!-- 云端共享组件随站点本地发布，与解析库同样零外部 CDN 依赖 -->
+<script defer src="workbuddy-cloud-sdk.global.js"></script>
 <style>
   * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
   body { font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif; background:#f2f4f8; color:#1f2329; }
@@ -259,6 +261,60 @@ function xlsxRetry(n) {
     <div class="footer">移动端培训部聚合平台</div>
   </div>
 
+  <!-- ================= 云端数据导入管理（负责人专用，?mode=admin） ================= -->
+  <div id="page-admin" style="display:none">
+    <div class="header">
+      <h1>数据导入管理</h1>
+      <div class="sub">负责人专用 · 更新后全员共享</div>
+      <button class="import-link" onclick="goHome()">‹ 首页</button>
+    </div>
+    <div id="adminLocked" class="imp-card">
+      <div class="imp-title">请输入管理密码</div>
+      <div class="imp-desc">此页面用于统一导入数据并发布到云端，仅负责人使用。</div>
+      <input type="password" id="adminPwdInput" class="pwd-input" placeholder="请输入管理密码" autocomplete="off"
+             onkeydown="if(event.key==='Enter')checkAdminPwd()">
+      <div class="pwd-err" id="adminPwdErr"></div>
+      <button class="enter-btn" onclick="checkAdminPwd()">进入导入页</button>
+    </div>
+    <div id="adminBody" style="display:none">
+      <div class="imp-card">
+        <div class="imp-title">① 查询数据（供「查询招生简章」使用）</div>
+        <div class="imp-desc">导入招生简章与教室功能两份文件。</div>
+        <div class="imp-row" id="arowZs">
+          <div class="imp-icon">简章</div>
+          <div class="imp-info">
+            <div class="imp-name">招生简章.xls</div>
+            <div class="imp-status" id="astZs">未导入</div>
+          </div>
+          <button class="imp-btn" onclick="document.getElementById('afileZs').click()">选择文件</button>
+          <input type="file" id="afileZs" accept=".xls,.xlsx" style="display:none" onchange="adminOnFile(this,'zs')">
+        </div>
+        <div class="imp-row" id="arowRoom">
+          <div class="imp-icon">功能</div>
+          <div class="imp-info">
+            <div class="imp-name">教室功能.xlsx</div>
+            <div class="imp-status" id="astRoom">未导入</div>
+          </div>
+          <button class="imp-btn" onclick="document.getElementById('afileRoom').click()">选择文件</button>
+          <input type="file" id="afileRoom" accept=".xls,.xlsx" style="display:none" onchange="adminOnFile(this,'room')">
+        </div>
+      </div>
+      <div class="imp-card">
+        <div class="imp-title">② 统计数据（供「数据统计」使用）</div>
+        <div class="imp-desc">导入春季 / 暑期 / 秋季招生简章，可只导入部分。</div>
+        <div id="adminStatRows"></div>
+      </div>
+      <div class="imp-card">
+        <div class="imp-title">③ 发布到云端</div>
+        <div class="imp-desc" id="adminCloudState">正在检查云端状态…</div>
+        <div class="imp-warn" id="adminWarn" style="display:none"></div>
+        <button class="enter-btn" id="adminPublishBtn" disabled onclick="adminPublish()">发布到云端，全员共享 →</button>
+        <div class="pwd-err" id="adminPublishMsg"></div>
+      </div>
+    </div>
+    <div class="footer">数据仅存云端，除负责人外所有人只读</div>
+  </div>
+
   <!-- ================= 数据统计：导入 ================= -->
   <div id="page-stat-import" style="display:none">
     <div class="header">
@@ -466,6 +522,219 @@ function xlsxRetry(n) {
 </div>
 
 <script>
+/* ================= 云端共享数据（负责人导入一次，全员看到同一份） =================
+   WorkBuddy 云服务的公开配置（publishableKey 只标识应用、无权限，可随页面下发）；
+   endpoint 必须精确来自 publicConfig，服务端按 Origin 校验，只有本站发布域名可调用。 */
+const CLOUD_ENDPOINT = 'https://training-portal-64035.app.workbuddy.host';
+const CLOUD_PUBLISHABLE_KEY = 'wbpk_7ZpHcvj6c4C6XmZhHH1DbP_VBNAHb9zobTFa3t07zOaupmiEFN6hreH';
+const CLOUD_TABLE = 'portal_dataset';
+const CLOUD_EDIT_SECRET = 'sngpxb';   /* 与数据库 RLS 写入策略一致 */
+const CLOUD_ROW_ID = 'main';
+let cloudClient = null;
+let CLOUD_LAST_AT = '';               /* 云端数据的最后更新时间 */
+
+/* 初始化云端客户端（SDK 由本地随站点发布，无外部 CDN 依赖） */
+function getCloud() {
+  if (cloudClient) return cloudClient;
+  if (typeof WorkBuddyCloud === 'undefined' || !WorkBuddyCloud.createWorkBuddyCloud) return null;
+  try {
+    cloudClient = WorkBuddyCloud.createWorkBuddyCloud({
+      endpoint: CLOUD_ENDPOINT,
+      publishableKey: CLOUD_PUBLISHABLE_KEY,
+    });
+  } catch (e) { cloudClient = null; }
+  return cloudClient;
+}
+
+/* 读取云端共享数据：成功返回 {data,stat}，无数据返回 null，失败抛错交由调用方处理 */
+async function cloudLoad() {
+  const c = getCloud();
+  if (!c) throw new Error('云端组件未加载');
+  const res = await c.database.from(CLOUD_TABLE)
+    .select('query_payload, stat_payload, updated_at')
+    .eq('id', CLOUD_ROW_ID).maybeSingle();
+  if (res.error) throw new Error(res.error.message || '读取失败');
+  if (!res.data) return null;
+  CLOUD_LAST_AT = res.data.updated_at || '';
+  return { data: res.data.query_payload || null, stat: res.data.stat_payload || null };
+}
+
+/* 写入云端共享数据：仅负责人导入页在用，edit_secret 由 RLS 校验 */
+async function cloudSave(data, stat, by) {
+  const c = getCloud();
+  if (!c) throw new Error('云端组件未加载');
+  const payload = {
+    id: CLOUD_ROW_ID,
+    query_payload: data,
+    stat_payload: stat,
+    edit_secret: CLOUD_EDIT_SECRET,
+    updated_by: by || '负责人',
+    updated_at: new Date().toISOString(),
+  };
+  const res = await c.database.from(CLOUD_TABLE).upsert(payload, { onConflict: 'id' });
+  if (res.error) throw new Error(res.error.message || '写入失败');
+  return true;
+}
+
+/* ================= 负责人导入页（?mode=admin） ================= */
+const ADMIN_PASSWORD = 'sngpxb';
+const ADMIN_AUTH_KEY = 'agg_admin_auth';
+let adminUnlocked = false;
+let adminZs = null, adminRoom = null;
+let adminStat = { spring: null, summer: null, autumn: null };
+
+function adminUnlockedOk() {
+  if (adminUnlocked) return true;
+  try {
+    if (sessionStorage.getItem(ADMIN_AUTH_KEY) === '1') { adminUnlocked = true; return true; }
+  } catch (e) {}
+  return false;
+}
+function checkAdminPwd() {
+  const input = document.getElementById('adminPwdInput');
+  const v = String(input.value == null ? '' : input.value);
+  if (v !== ADMIN_PASSWORD) {
+    document.getElementById('adminPwdErr').textContent = '密码不正确，请重新输入';
+    input.value = '';
+    return false;
+  }
+  adminUnlocked = true;
+  try { sessionStorage.setItem(ADMIN_AUTH_KEY, '1'); } catch (e) {}
+  document.getElementById('adminLocked').style.display = 'none';
+  document.getElementById('adminBody').style.display = '';
+  adminRenderStatRows();
+  adminRefreshState();
+  return true;
+}
+function adminEnter() {
+  if (!adminUnlockedOk()) {
+    document.getElementById('adminLocked').style.display = '';
+    document.getElementById('adminBody').style.display = 'none';
+    const inp = document.getElementById('adminPwdInput');
+    if (inp) inp.value = '';
+    return;
+  }
+  document.getElementById('adminLocked').style.display = 'none';
+  document.getElementById('adminBody').style.display = '';
+  const pm = document.getElementById('adminPublishMsg');
+  if (pm) pm.textContent = '';
+  adminRenderStatRows();
+  adminRefreshState();
+}
+function adminRenderStatRows() {
+  const box = document.getElementById('adminStatRows');
+  if (!box) return;
+  box.innerHTML = STAT_TERMS.map(t => {
+    const d = adminStat[t.key];
+    return '<div class="imp-row" id="arow-' + t.key + '">' +
+      '<div class="imp-icon">' + t.icon + '</div>' +
+      '<div class="imp-info"><div class="imp-name">' + t.name + '招生简章</div>' +
+      '<div class="imp-status" id="ast-' + t.key + '">' + (d ? '✓ ' + esc(d.fileName) + ' · ' + d.rows.length + ' 个班' : '未导入') + '</div></div>' +
+      '<button class="imp-btn" onclick="document.getElementById(\'afile-' + t.key + '\').click()">选择文件</button>' +
+      '<input type="file" id="afile-' + t.key + '" accept=".xls,.xlsx" style="display:none" onchange="adminOnFile(this,\'' + t.key + '\')">' +
+      '</div>';
+  }).join('');
+  STAT_TERMS.forEach(t => {
+    const row = document.getElementById('arow-' + t.key);
+    if (row && adminStat[t.key]) {
+      row.classList.add('done');
+      document.getElementById('ast-' + t.key).classList.add('ok');
+    }
+  });
+}
+function adminSetState(rowId, stId, text) {
+  document.getElementById(rowId).classList.add('done');
+  const st = document.getElementById(stId);
+  st.textContent = text;
+  st.classList.add('ok');
+  document.getElementById('adminWarn').style.display = 'none';
+}
+function adminOnFile(input, kind) {
+  const file = input.files[0];
+  if (!file) return;
+  if (typeof XLSX === 'undefined') {
+    adminWarn('解析库尚未加载完成，请稍候几秒重试。');
+    input.value = ''; return;
+  }
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
+      if (kind === 'zs') {
+        adminZs = parseZhaosheng(wb);
+        adminSetState('arowZs', 'astZs', '✓ ' + file.name + ' · ' + adminZs.classes.length + ' 个班');
+      } else if (kind === 'room') {
+        adminRoom = parseRoomFunc(wb);
+        const n = adminRoom['厦港'].length + adminRoom['镇海'].length;
+        adminSetState('arowRoom', 'astRoom', '✓ ' + file.name + ' · ' + n + ' 间教室');
+      } else {
+        adminStat[kind] = parseStatWorkbook(wb, file.name);
+        adminRenderStatRows();
+      }
+      adminRefreshPublishBtn();
+    } catch (err) {
+      adminWarn('「' + file.name + '」解析失败：' + err.message);
+    }
+    input.value = '';
+  };
+  reader.readAsArrayBuffer(file);
+}
+function adminWarn(msg) {
+  const w = document.getElementById('adminWarn');
+  if (!w) return;
+  w.textContent = '⚠ ' + msg;
+  w.style.display = 'block';
+}
+function adminRefreshPublishBtn() {
+  const queryOk = !!(adminZs && adminRoom);
+  const statOk = STAT_TERMS.some(t => adminStat[t.key]);
+  const btn = document.getElementById('adminPublishBtn');
+  if (btn) btn.disabled = !(queryOk || statOk);
+}
+function fmtCloudTime(s) {
+  if (!s) return '';
+  const d = new Date(s);
+  if (isNaN(d.getTime())) return s;
+  return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2) +
+    ' ' + ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2);
+}
+async function adminRefreshState() {
+  const box = document.getElementById('adminCloudState');
+  if (!box) return;
+  try {
+    const r = await cloudLoad();
+    if (!r) { box.textContent = '云端当前尚无共享数据。导入文件后点下方按钮发布。'; return; }
+    const q = r.data ? r.data.classes ? r.data.classes.length + ' 个班' : '无查询数据' : '无查询数据';
+    const st = r.stat ? STAT_TERMS.filter(t => r.stat[t.key]).map(t => t.name).join('/') || '无统计数据' : '无统计数据';
+    box.textContent = '云端已发布：查询 ' + q + ' · 统计 ' + st + '　更新于 ' + fmtCloudTime(CLOUD_LAST_AT);
+  } catch (e) {
+    box.textContent = '⚠ 无法连接云端（' + (e.message || '请检查网络') + '）。请通过 WorkBuddy 发布链接打开本页。';
+  }
+}
+async function adminPublish() {
+  const btn = document.getElementById('adminPublishBtn');
+  const msg = document.getElementById('adminPublishMsg');
+  if (!btn || btn.disabled) return;
+  btn.disabled = true;
+  msg.textContent = '正在发布到云端…';
+  msg.style.color = '#86909c';
+  try {
+    const data = (adminZs && adminRoom) ? mergeData(adminZs, adminRoom) : null;
+    const stat = {};
+    STAT_TERMS.forEach(t => { stat[t.key] = adminStat[t.key] || null; });
+    const hasStat = STAT_TERMS.some(t => stat[t.key]);
+    await cloudSave(data, hasStat ? stat : null, '负责人');
+    msg.style.color = '#00b42a';
+    msg.textContent = '✓ 发布成功，所有打开链接的人将看到这份数据。';
+    await adminRefreshState();
+  } catch (e) {
+    msg.style.color = '#f53f3f';
+    msg.textContent = '✗ 发布失败：' + (e.message || '未知错误');
+  }
+  btn.disabled = false;
+  adminRefreshPublishBtn();
+}
+
 /* 数据统计入口密码：写死在页面内，仅防误触，查看网页源码即可看到，不是真正的访问控制 */
 const STAT_PASSWORD = 'sngpxb';
 const STAT_AUTH_KEY = 'agg_stat_auth';
@@ -1622,11 +1891,11 @@ function initQuery() {
   clearResults();
 }
 
-/* 启动：若上次已导入并持久化，直接恢复导入状态 */
-(function boot() {
+/* 恢复本地导入状态（无云端或云端不可用时的兜底） */
+function restoreLocalData() {
   try {
     const saved = localStorage.getItem('agg_imported');
-    if (saved) {
+    if (saved && !DATA) {
       DATA = JSON.parse(saved);
       zsOk = roomOk = true;
       setRowState('rowZs', 'stZs', '✓ 已导入（上次数据生效中，可重新选择文件覆盖）');
@@ -1637,7 +1906,7 @@ function initQuery() {
   } catch (e) {}
   try {
     const s = localStorage.getItem(STAT_CACHE);
-    if (s) {
+    if (s && !statLoaded().length) {
       const o = JSON.parse(s);
       STAT = { spring: o.spring || null, summer: o.summer || null, autumn: o.autumn || null };
       /* 分类口径调整后，旧缓存里已存的 cat 按当前规则重算，用户无需重新导入三份简章 */
@@ -1647,7 +1916,58 @@ function initQuery() {
       });
     }
   } catch (e) {}
-  initStatImport();
+}
+
+/* 应用云端共享数据：优先于本地缓存，缓存一份供离线/刷新时快速显示 */
+function applyCloudData(r) {
+  let changed = false;
+  if (r.data && r.data.classes) {
+    DATA = r.data;
+    zsOk = roomOk = true;
+    try { localStorage.setItem('agg_imported', JSON.stringify(DATA)); } catch (e) {}
+    setRowState('rowZs', 'stZs', '✓ 已加载云端共享数据 · 全员同一份');
+    setRowState('rowRoom', 'stRoom', '✓ 已加载云端共享数据 · 全员同一份');
+    document.getElementById('resetBtn').style.display = '';
+    refreshEnter();
+    changed = true;
+  }
+  if (r.stat && STAT_TERMS.some(t => r.stat[t.key])) {
+    STAT = { spring: r.stat.spring || null, summer: r.stat.summer || null, autumn: r.stat.autumn || null };
+    try { localStorage.setItem(STAT_CACHE, JSON.stringify(STAT)); } catch (e) {}
+    changed = true;
+  }
+  if (changed) {
+    const label = '云端共享数据 · ' + fmtCloudTime(CLOUD_LAST_AT);
+    const line = document.getElementById('statLine');
+    if (line) line.textContent = (line.textContent ? line.textContent + ' · ' : '') + label;
+  }
+}
+
+/* 启动：admin 模式进导入页；其余模式优先读云端共享数据，失败则用本地缓存 */
+(function boot() {
+  const params = new URLSearchParams(location.search);
+  const isAdmin = params.get('mode') === 'admin';
+  if (isAdmin) {
+    PAGES.push('page-admin');
+    showPage('page-admin');
+    adminEnter();
+    initStatImport();
+  } else {
+    restoreLocalData();
+    initStatImport();
+  }
+  /* 云端加载是异步增强：无论 admin 还是普通模式都拉取，成功后刷新对应视图 */
+  cloudLoad().then(r => {
+    if (!r) return;
+    if (isAdmin) { adminRefreshState(); return; }
+    applyCloudData(r);
+    if (curPanel === 'night') queryNight();
+    else if (curPanel === 'free') queryFree();
+    else if (curPanel === 'grade') queryGrade();
+    if (document.getElementById('statBody').innerHTML) renderStat();
+  }).catch(e => {
+    /* 云端不可用（如 file:// 离线版、Netlify 跨域）时静默使用本地数据 */
+  });
 })();
 </script>
 </body>

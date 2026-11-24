@@ -17,33 +17,42 @@ const offlineTitle = process.argv.includes('--offline-title');
 let html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
 const libBuf = fs.readFileSync(path.join(ROOT, 'xlsx.full.min.js'));
 const b64 = libBuf.toString('base64');
+const sdkBuf = fs.readFileSync(path.join(ROOT, 'workbuddy-cloud-sdk.global.js'));
+const sdkB64 = sdkBuf.toString('base64');
 
 /* 1. 去掉外链库 script，单文件版不再需要任何网络回退 */
 const loadRe = /<!-- 解析库随站点本地发布[\s\S]*?<script defer src="xlsx\.full\.min\.js"[^>]*><\/script>/;
 if (!loadRe.test(html)) throw new Error('未找到库加载片段');
 html = html.replace(loadRe, '<!-- 单文件版：SheetJS 以 base64 内嵌，全程零网络请求 -->');
+/* 去掉云端 SDK 的外链 script（改为内嵌） */
+html = html.replace(/<!-- 云端共享组件随站点本地发布[^\n]*\n?<script defer src="workbuddy-cloud-sdk\.global\.js"><\/script>\n?/, '');
 
 /* 2. 用 DOM textContent 注入库代码，规避 HTML 对 <!-- / </script> 的解析问题 */
 const marker = '<script>\n';
 if (!html.includes(marker)) throw new Error('未找到业务脚本起点');
 const loader = `<script type="text/plain" id="xlsx-b64">${b64}</script>
+<script type="text/plain" id="cloudsdk-b64">${sdkB64}</script>
 <script>
 (function () {
-  try {
-    var b64 = document.getElementById('xlsx-b64').textContent.replace(/\\s+/g, '');
-    var bin = atob(b64), u = new Uint8Array(bin.length);
-    for (var i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
-    var code;
-    if (typeof TextDecoder !== 'undefined') code = new TextDecoder('utf-8').decode(u);
-    else {
-      var s = '';
-      for (var j = 0; j < u.length; j += 8192) s += String.fromCharCode.apply(null, u.subarray(j, j + 8192));
-      code = decodeURIComponent(escape(s));
-    }
-    var tag = document.createElement('script');
-    tag.textContent = code;
-    document.head.appendChild(tag);
-  } catch (e) { window.__xlsxErr = String((e && e.message) || e); }
+  function inject(id, flag) {
+    try {
+      var b64 = document.getElementById(id).textContent.replace(/\\s+/g, '');
+      var bin = atob(b64), u = new Uint8Array(bin.length);
+      for (var i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+      var code;
+      if (typeof TextDecoder !== 'undefined') code = new TextDecoder('utf-8').decode(u);
+      else {
+        var s = '';
+        for (var j = 0; j < u.length; j += 8192) s += String.fromCharCode.apply(null, u.subarray(j, j + 8192));
+        code = decodeURIComponent(escape(s));
+      }
+      var tag = document.createElement('script');
+      tag.textContent = code;
+      document.head.appendChild(tag);
+    } catch (e) { window[flag] = String((e && e.message) || e); }
+  }
+  inject('xlsx-b64', '__xlsxErr');
+  inject('cloudsdk-b64', '__cloudErr');
 })();
 </script>
 <script>`;
@@ -62,9 +71,11 @@ fs.writeFileSync(outPath, html, 'utf8');
 
 /* ================= 自检 ================= */
 const m = html.match(/<script type="text\/plain" id="xlsx-b64">([\s\S]*?)<\/script>/);
-if (!m || !Buffer.from(m[1], 'base64').equals(libBuf)) throw new Error('内嵌库与原文件不一致');
+if (!m || !Buffer.from(m[1], 'base64').equals(libBuf)) throw new Error('内嵌解析库与原文件不一致');
+const ms = html.match(/<script type="text\/plain" id="cloudsdk-b64">([\s\S]*?)<\/script>/);
+if (!ms || !Buffer.from(ms[1], 'base64').equals(sdkBuf)) throw new Error('内嵌云端组件与原文件不一致');
 if (html.includes('cdn.jsdelivr.net') || /<script[^>]+src="http/.test(html)) throw new Error('仍存在外部依赖');
-if (/src="xlsx\.full\.min\.js"/.test(html)) throw new Error('仍引用独立库文件');
+if (/src="xlsx\.full\.min\.js"/.test(html) || /src="workbuddy-cloud-sdk\.global\.js"/.test(html)) throw new Error('仍引用独立库文件');
 for (const key of ['id="panel-grade"', 'id="panel-name"', 'function queryGrade', 'flex-wrap:wrap']) {
   if (!html.includes(key)) throw new Error('页面缺失：' + key);
 }
@@ -72,7 +83,8 @@ for (const key of ['id="panel-grade"', 'id="panel-name"', 'function queryGrade',
 /* 模拟浏览器按顺序执行脚本，验证内嵌库可用、业务脚本无错误 */
 const els = {};
 const el = id => (els[id] || (els[id] = {
-  id, value: '', innerHTML: '', textContent: id === 'xlsx-b64' ? b64 : '', style: {}, dataset: {}, files: [],
+  id, value: '', innerHTML: '', textContent: id === 'xlsx-b64' ? b64 : (id === 'cloudsdk-b64' ? sdkB64 : ''),
+  style: {}, dataset: {}, files: [],
   classList: { add() {}, remove() {}, toggle() {} }, click() {}, focus() {},
 }));
 let ctx;
@@ -88,6 +100,11 @@ ctx = vm.createContext({
   document, localStorage, sessionStorage, console,
   atob: s => Buffer.from(s, 'base64').toString('binary'),
   TextDecoder, Uint8Array, escape, decodeURIComponent, FileReader: function () {},
+  setTimeout, clearTimeout, Promise, URL, URLSearchParams, Date, Math, JSON,
+  location: { search: '' }, history: { replaceState() {} },
+  Headers: global.Headers, Request: global.Request, Response: global.Response,
+  fetch: function () { return Promise.reject(new Error('offline self-check')); },
+  crypto: require('crypto').webcrypto,
 });
 ctx.window = ctx;
 const blocks = [...html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g)]

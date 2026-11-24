@@ -4,9 +4,18 @@
 
 线上入口：
 
-- Netlify 主站：https://sng-jiugong-pingtai.netlify.app
-- 国内备用链接：https://training-portal-64035.app.workbuddy.host/?sharecode=D7B7JKPWDA （零子资源单文件版；转发须保留完整 `?sharecode=`）
-- 单文件离线版：`E:\桌面\移动端聚合平台\移动端培训部聚合平台_单文件离线版.html`，微信传文件到手机后用浏览器打开，完全不走链接、离线可用
+- **共享数据主站（推荐，全员同一份）**：https://training-portal-64035.app.workbuddy.host/?sharecode=D7B7JKPWDA （转发须保留完整 `?sharecode=`）
+- **负责人导入专用链接**：https://training-portal-64035.app.workbuddy.host/?sharecode=D7B7JKPWDA&mode=admin （密码 `sngpxb`，导入 5 份并发布到云端；只发给负责人）
+- Netlify 主站：https://sng-jiugong-pingtai.netlify.app （跨域读不到云端数据，走本地导入模式）
+- 单文件离线版：`E:\桌面\移动端聚合平台\移动端培训部聚合平台_单文件离线版.html`，微信传文件到手机后用浏览器打开，完全不走链接、离线可用（本地模式）
+
+## 云端共享（一人导入、全员查看）
+
+- **数据只导入一次**：负责人在导入专用链接（`?mode=admin`）输入密码 `sngpxb`，导入查询用的 2 份（招生简章 + 教室功能）与统计用的 3 份（春 / 暑 / 秋），点「发布到云端，全员共享」。
+- **所有人看到同一份**：其他人打开共享主站链接，页面自动从云端读取，无需各自导入；数据更新后打开即为最新。云端读取失败（离线 / 跨域）时自动用浏览器本地缓存兜底。
+- **域名约束**：云服务的 publishableKey 按 Origin 精确校验，只有 WorkBuddy 发布域名（`training-portal-64035.app.workbuddy.host`）能读写云端；Netlify 主站与 `file://` 离线版读不到云端，仍是原来的本地导入模式。
+- **权限**：云端表 `portal_dataset` 单行（`id=main`），`query_payload` / `stat_payload` 存解析结果；所有角色可读；写入需 `edit_secret='sngpxb'`（RLS 策略校验，前端密码一致），无删除权限。已实测正确令牌写入成功、错误令牌被拒（42501）。
+- **公开配置**：`CLOUD_ENDPOINT` / `CLOUD_PUBLISHABLE_KEY` 来自云服务激活返回的 publicConfig，publishableKey 只标识应用、无权限；云端 SDK 随站点本地发布，单文件版一并内嵌，零外部 CDN。
 
 ## 页面结构
 
