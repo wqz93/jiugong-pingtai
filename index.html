@@ -240,12 +240,12 @@ function xlsxRetry(n) {
       <div class="entry" onclick="goEntry('import')">
         <div class="entry-icon" style="background:#eef3ff;color:#2b5aed">简章</div>
         <div class="entry-name">查询招生简章</div>
-        <div class="entry-desc">班级名称 / 教室 / 年级 / 功能 / 空教室 / 晚课查询</div>
+        <div class="entry-desc" id="queryEntryDesc">班级名称 / 教室 / 年级 / 功能 / 空教室 / 晚课查询</div>
       </div>
       <div class="entry" onclick="goEntry('stat-import')">
         <div class="entry-icon" style="background:#fff7e8;color:#ff7d00">统计</div>
         <div class="entry-name">数据统计</div>
-        <div class="entry-desc">春季 / 暑期 / 秋季 · 按校区统计与对比（需密码）</div>
+        <div class="entry-desc" id="statEntryDesc">春季 / 暑期 / 秋季 · 按校区统计与对比（需密码）</div>
       </div>
       <div class="entry disabled">
         <div class="entry-icon" style="background:#f2f3f5;color:#a9aeb8">待</div>
@@ -532,6 +532,8 @@ const CLOUD_EDIT_SECRET = 'sngpxb';   /* 与数据库 RLS 写入策略一致 */
 const CLOUD_ROW_ID = 'main';
 let cloudClient = null;
 let CLOUD_LAST_AT = '';               /* 云端数据的最后更新时间 */
+let CLOUD_SHARED = false;             /* 云端共享数据已生效：普通用户免导入、直达数据页 */
+let bootCloudPromise = null;          /* 启动时云端读取任务，入口点击时等待它完成 */
 
 /* 初始化云端客户端（SDK 由本地随站点发布，无外部 CDN 依赖） */
 function getCloud() {
@@ -1015,8 +1017,16 @@ function resetData() {
 const PAGES = ['page-home', 'page-import', 'page-query', 'page-stat-import', 'page-stat'];
 const STAT_PAGES = ['page-stat-import', 'page-stat'];
 function showPage(id) {
-  /* 所有进入数据统计页面的路径都在这里拦一道：首页入口、重新导入、控制台直跳 */
-  if (STAT_PAGES.indexOf(id) >= 0 && !statAuthOk()) {
+  /* 共享模式：数据是负责人统一发布的，普通用户只读查看，不进任何导入页。
+     拦在统一入口，首页、结果页「重新导入」、控制台直跳全部生效。 */
+  if (CLOUD_SHARED && (id === 'page-import' || id === 'page-stat-import')) {
+    if (id === 'page-import' && DATA) { id = 'page-query'; initQuery(); }
+    else if (id === 'page-stat-import' && statLoaded().length) { id = 'page-stat'; initStat(); }
+    else { goHome(); return false; }
+  }
+  /* 所有进入数据统计页面的路径都在这里拦一道：首页入口、重新导入、控制台直跳。
+     共享模式下数据由负责人统一发布，所有人只读查看，不再需要这道密码。 */
+  if (STAT_PAGES.indexOf(id) >= 0 && !CLOUD_SHARED && !statAuthOk()) {
     statPending = id;
     openStatPwd();
     return false;
@@ -1025,9 +1035,25 @@ function showPage(id) {
   return true;
 }
 function goHome() { showPage('page-home'); }
-function goEntry(entry) {
-  if (entry === 'import') showPage('page-import');
-  else if (entry === 'stat-import') { initStatImport(); showPage('page-stat-import'); }
+async function goEntry(entry) {
+  /* 云端读取是异步的：等它结束再决定去向，避免用户刚打开就点入口时
+     误入导入页。云端不可用时（离线版 / Netlify）按原来的本地流程走。 */
+  if (bootCloudPromise) { try { await bootCloudPromise; } catch (e) {} }
+  if (entry === 'import') {
+    if (CLOUD_SHARED && DATA) { enterQuery(); return; }
+    showPage('page-import');
+  } else if (entry === 'stat-import') {
+    if (CLOUD_SHARED) {
+      if (statLoaded().length) { enterStat(); return; }
+      /* 云端只发布了查询数据、暂无统计数据时给出明确提示，不落到导入页 */
+      document.getElementById('statSub').textContent = '云端暂未发布统计数据，请联系负责人导入发布';
+      document.getElementById('statBody').innerHTML = '';
+      showPage('page-stat');
+      return;
+    }
+    initStatImport();
+    showPage('page-stat-import');
+  }
 }
 function enterQuery() {
   if (!DATA) return;
@@ -1937,9 +1963,15 @@ function applyCloudData(r) {
     changed = true;
   }
   if (changed) {
+    CLOUD_SHARED = true;
     const label = '云端共享数据 · ' + fmtCloudTime(CLOUD_LAST_AT);
     const line = document.getElementById('statLine');
     if (line) line.textContent = (line.textContent ? line.textContent + ' · ' : '') + label;
+    /* 共享模式下首页入口文案去掉「需密码」，改成直达说明 */
+    const sd = document.getElementById('statEntryDesc');
+    if (sd) sd.textContent = '春季 / 暑期 / 秋季 · 按校区统计与对比（全员共享 · 直接查看）';
+    const qd = document.getElementById('queryEntryDesc');
+    if (qd) qd.textContent = '班级名称 / 教室 / 年级 / 功能 / 空教室 / 晚课（全员共享 · 直接查看）';
   }
 }
 
@@ -1956,8 +1988,9 @@ function applyCloudData(r) {
     restoreLocalData();
     initStatImport();
   }
-  /* 云端加载是异步增强：无论 admin 还是普通模式都拉取，成功后刷新对应视图 */
-  cloudLoad().then(r => {
+  /* 云端加载是异步增强：无论 admin 还是普通模式都拉取，成功后刷新对应视图。
+     保存这个 Promise，首页入口点击时先等它结束，保证共享数据已应用再决定跳转。 */
+  bootCloudPromise = cloudLoad().then(r => {
     if (!r) return;
     if (isAdmin) { adminRefreshState(); return; }
     applyCloudData(r);
